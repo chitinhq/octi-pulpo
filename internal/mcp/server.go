@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/crosssquad"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
@@ -47,13 +48,14 @@ type RPCError struct {
 
 // Server is the Octi Pulpo MCP server.
 type Server struct {
-	mem         *memory.Store
-	coord       *coordination.Engine
-	router      *routing.Router
-	dispatcher  *dispatch.Dispatcher
-	sprintStore *sprint.Store
-	benchmark   *dispatch.BenchmarkTracker
-	profiles    *dispatch.ProfileStore
+	mem          *memory.Store
+	coord        *coordination.Engine
+	router       *routing.Router
+	dispatcher   *dispatch.Dispatcher
+	sprintStore  *sprint.Store
+	benchmark    *dispatch.BenchmarkTracker
+	profiles     *dispatch.ProfileStore
+	crossSquad   *crosssquad.Store
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -79,6 +81,11 @@ func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
 // SetProfileStore enables the agent leaderboard MCP tool.
 func (s *Server) SetProfileStore(ps *dispatch.ProfileStore) {
 	s.profiles = ps
+}
+
+// SetCrossSquad enables cross-squad request routing MCP tools.
+func (s *Server) SetCrossSquad(cs *crosssquad.Store) {
+	s.crossSquad = cs
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -368,6 +375,108 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, dispatch.FormatLeaderboard(entries))
 
+	case "request_work":
+		if s.crossSquad == nil {
+			return errorResp(req.ID, -32000, "cross-squad store not initialized")
+		}
+		var args struct {
+			FromAgent       string `json:"from_agent"`
+			ToSquad         string `json:"to_squad"`
+			Type            string `json:"type"`
+			Description     string `json:"description"`
+			Priority        int    `json:"priority"`
+			DeadlineMinutes int    `json:"deadline_minutes"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.FromAgent == "" {
+			args.FromAgent = agentID
+		}
+		if args.ToSquad == "" || args.Description == "" {
+			return errorResp(req.ID, -32602, "to_squad and description are required")
+		}
+		if args.Type == "" {
+			args.Type = "report"
+		}
+		xreq, err := s.crossSquad.Create(ctx, args.FromAgent, args.ToSquad,
+			crosssquad.RequestType(args.Type), args.Description,
+			args.Priority, args.DeadlineMinutes)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		msg := fmt.Sprintf("Request %s created → squad:%s type:%s priority:%d",
+			xreq.ID, xreq.ToSquad, xreq.Type, xreq.Priority)
+		if xreq.DeadlineAt != "" {
+			msg += fmt.Sprintf(" deadline:%s", xreq.DeadlineAt)
+		}
+		return textResult(req.ID, msg)
+
+	case "check_requests":
+		if s.crossSquad == nil {
+			return errorResp(req.ID, -32000, "cross-squad store not initialized")
+		}
+		var args struct {
+			Squad string `json:"squad"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Squad == "" {
+			return errorResp(req.ID, -32602, "squad is required")
+		}
+		reqs, err := s.crossSquad.GetBySquad(ctx, args.Squad)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if len(reqs) == 0 {
+			return textResult(req.ID, fmt.Sprintf("No pending requests for squad %q.", args.Squad))
+		}
+		type requestSummary struct {
+			ID          string `json:"id"`
+			From        string `json:"from"`
+			Type        string `json:"type"`
+			Description string `json:"description"`
+			Priority    int    `json:"priority"`
+			Status      string `json:"status"`
+			AgeMinutes  int    `json:"age_minutes"`
+			DeadlineAt  string `json:"deadline_at,omitempty"`
+			Result      string `json:"result,omitempty"`
+		}
+		summaries := make([]requestSummary, len(reqs))
+		for i, r := range reqs {
+			summaries[i] = requestSummary{
+				ID:          r.ID,
+				From:        r.FromAgent,
+				Type:        string(r.Type),
+				Description: r.Description,
+				Priority:    r.Priority,
+				Status:      string(r.Status),
+				AgeMinutes:  r.AgeMinutes(),
+				DeadlineAt:  r.DeadlineAt,
+				Result:      r.Result,
+			}
+		}
+		data, _ := json.Marshal(summaries)
+		return textResult(req.ID, string(data))
+
+	case "fulfill_request":
+		if s.crossSquad == nil {
+			return errorResp(req.ID, -32000, "cross-squad store not initialized")
+		}
+		var args struct {
+			RequestID string `json:"request_id"`
+			Result    string `json:"result"`
+			PRNumber  int    `json:"pr_number"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.RequestID == "" || args.Result == "" {
+			return errorResp(req.ID, -32602, "request_id and result are required")
+		}
+		if err := s.crossSquad.Fulfill(ctx, args.RequestID, agentID, args.Result, args.PRNumber); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		// Notify the requester via coord_signal so they can react.
+		_ = s.coord.Broadcast(ctx, agentID, "completed",
+			fmt.Sprintf("cross-squad request %s fulfilled: %s", args.RequestID, args.Result))
+		return textResult(req.ID, fmt.Sprintf("Request %s fulfilled.", args.RequestID))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -578,6 +687,46 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "request_work",
+			Description: "Request work from another squad. The request is stored in Redis; the brain dispatches the target squad's SR on the next tick. Use fulfill_request to complete, check_requests to poll.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"from_agent":       map[string]string{"type": "string", "description": "Requesting agent name (defaults to calling agent)"},
+					"to_squad":         map[string]string{"type": "string", "description": "Target squad (e.g. analytics, cloud, kernel)"},
+					"type":             map[string]interface{}{"type": "string", "enum": []string{"report", "query", "review", "fix", "deploy"}, "description": "Kind of work requested"},
+					"description":      map[string]string{"type": "string", "description": "What you need — be specific so the target agent can act without follow-up"},
+					"priority":         map[string]interface{}{"type": "number", "description": "0=urgent, 1=high, 2=normal (default 2)"},
+					"deadline_minutes": map[string]interface{}{"type": "number", "description": "How soon you need it in minutes (0 = no hard deadline)"},
+				},
+				"required": []string{"to_squad", "description"},
+			},
+		},
+		{
+			Name:        "check_requests",
+			Description: "Check for cross-squad requests directed at your squad. Returns all live requests (pending, claimed, fulfilled), most urgent first.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad": map[string]string{"type": "string", "description": "Squad name to check requests for (e.g. analytics, kernel, octi-pulpo)"},
+				},
+				"required": []string{"squad"},
+			},
+		},
+		{
+			Name:        "fulfill_request",
+			Description: "Mark a cross-squad request as fulfilled. Records the result and broadcasts a 'completed' signal to the requesting agent.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"request_id": map[string]string{"type": "string", "description": "Request ID from request_work or check_requests"},
+					"result":     map[string]string{"type": "string", "description": "What you produced — file path, summary, or URL"},
+					"pr_number":  map[string]interface{}{"type": "number", "description": "PR number if the work resulted in a pull request (optional)"},
+				},
+				"required": []string{"request_id", "result"},
 			},
 		},
 	}
