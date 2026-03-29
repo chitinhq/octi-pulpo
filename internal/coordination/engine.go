@@ -81,6 +81,12 @@ func (e *Engine) ActiveClaims(ctx context.Context) ([]Claim, error) {
 	return claims, nil
 }
 
+// ReleaseClaim explicitly removes an agent's claim before TTL expiry.
+// Called by workers when an agent finishes execution.
+func (e *Engine) ReleaseClaim(ctx context.Context, agentID string) error {
+	return e.rdb.Del(ctx, e.key("claim:"+agentID)).Err()
+}
+
 // Broadcast sends a signal to the swarm via pub/sub.
 func (e *Engine) Broadcast(ctx context.Context, agentID, sigType, payload string) error {
 	sig := Signal{

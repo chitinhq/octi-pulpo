@@ -233,6 +233,50 @@ func (d *Dispatcher) ClearCooldown(ctx context.Context, agentName string) error 
 	return d.rdb.Del(ctx, d.key("cooldown:"+agentName)).Err()
 }
 
+// ReleaseClaim releases the coordination claim for an agent.
+func (d *Dispatcher) ReleaseClaim(ctx context.Context, agentName string) error {
+	return d.coord.ReleaseClaim(ctx, agentName)
+}
+
+// RecordWorkerResult records a worker execution result for observability.
+func (d *Dispatcher) RecordWorkerResult(ctx context.Context, agentName string, exitCode int, durationSec float64) {
+	result := map[string]interface{}{
+		"agent":        agentName,
+		"exit_code":    exitCode,
+		"duration_sec": durationSec,
+		"timestamp":    time.Now().UTC().Format(time.RFC3339),
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+
+	pipe := d.rdb.Pipeline()
+	pipe.LPush(ctx, d.key("worker-results"), data)
+	pipe.LTrim(ctx, d.key("worker-results"), 0, 999) // keep last 1000
+	if exitCode == 0 {
+		pipe.Incr(ctx, d.key("worker-ok"))
+	} else {
+		pipe.Incr(ctx, d.key("worker-fail"))
+	}
+	pipe.Exec(ctx)
+}
+
+// RedisClient returns the underlying Redis client (for workers that need direct queue access).
+func (d *Dispatcher) RedisClient() *redis.Client {
+	return d.rdb
+}
+
+// Namespace returns the dispatcher's namespace prefix.
+func (d *Dispatcher) Namespace() string {
+	return d.namespace
+}
+
+// Coord returns the coordination engine.
+func (d *Dispatcher) Coord() *coordination.Engine {
+	return d.coord
+}
+
 func (d *Dispatcher) recordDispatch(ctx context.Context, agentName string, event Event, result DispatchResult) {
 	record := DispatchRecord{
 		Agent:     agentName,
