@@ -274,7 +274,13 @@ func (b *Brain) maybeNotifyConstraintChange(ctx context.Context, constraint Cons
 	nowDown := constraint.Type == "all_drivers_down"
 	if nowDown && !b.driversWereDown {
 		b.driversWereDown = true
-		if err := b.notifier.PostDriversDown(ctx, constraint.Description); err != nil {
+		buttons := []ActionButton{
+			{Text: "Pause Squad", ActionID: "pause_squad", Value: "pause_squad", Style: "danger"},
+			{Text: "Switch Tier", ActionID: "switch_tier", Value: "switch_tier"},
+			{Text: "Ignore",      ActionID: "ignore_alert", Value: "ignore"},
+		}
+		body := constraint.Description + "\nDispatch is paused until at least one driver recovers."
+		if err := b.notifier.PostActionableAlert(ctx, "🚨", "All Drivers Exhausted", body, buttons); err != nil {
 			b.log.Printf("slack drivers-down: %v", err)
 		}
 	} else if !nowDown && b.driversWereDown {

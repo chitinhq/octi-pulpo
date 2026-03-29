@@ -17,14 +17,16 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
-// WebhookServer is a lightweight HTTP server for receiving GitHub webhooks.
+// WebhookServer is a lightweight HTTP server for receiving GitHub webhooks
+// and Slack interactive component callbacks.
 // It replaces webhook-listener.py with coordinated dispatch.
 type WebhookServer struct {
-	dispatcher  *Dispatcher
-	secret      []byte
-	mux         *http.ServeMux
-	sprintStore *sprint.Store
-	benchmark   *BenchmarkTracker
+	dispatcher   *Dispatcher
+	secret       []byte
+	mux          *http.ServeMux
+	sprintStore  *sprint.Store
+	benchmark    *BenchmarkTracker
+	slackActions *SlackInteractionHandler
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -64,6 +66,14 @@ func (ws *WebhookServer) SetSprintStore(s *sprint.Store) {
 // SetBenchmark enables benchmark HTTP endpoints.
 func (ws *WebhookServer) SetBenchmark(bt *BenchmarkTracker) {
 	ws.benchmark = bt
+}
+
+// SetSlackInteractions enables the /slack/actions endpoint for handling
+// Slack button callbacks. Call this after creating the WebhookServer when
+// SLACK_SIGNING_SECRET is available.
+func (ws *WebhookServer) SetSlackInteractions(handler *SlackInteractionHandler) {
+	ws.slackActions = handler
+	ws.mux.HandleFunc("/slack/actions", ws.handleSlackActions)
 }
 
 // ServeHTTP implements the http.Handler interface.
@@ -358,6 +368,36 @@ func (ws *WebhookServer) parseGitHubEvent(eventType, action, repo string, payloa
 	}
 
 	return nil // unrecognized event
+}
+
+// handleSlackActions handles POST /slack/actions — Slack interactive component callbacks.
+// Slack sends a URL-encoded form body with a "payload" field when a user clicks a button.
+// The handler verifies the X-Slack-Signature, dispatches the action, and returns an
+// ephemeral message confirming the action to the user in Slack.
+func (ws *WebhookServer) handleSlackActions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if ws.slackActions == nil {
+		http.Error(w, "slack interactions not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx := context.Background()
+	msg, err := ws.slackActions.Handle(ctx, r)
+	if err != nil {
+		// Log the real error but don't leak internals to Slack
+		fmt.Fprintf(os.Stderr, "slack action error: %v\n", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"response_type": "ephemeral",
+		"text":          msg,
+	})
 }
 
 func (ws *WebhookServer) verifySignature(payload []byte, signature string) bool {

@@ -127,6 +127,10 @@ func main() {
 			if slackURL := os.Getenv("SLACK_WEBHOOK_URL"); slackURL != "" {
 				brain.SetNotifier(dispatch.NewNotifier(slackURL))
 			}
+			if secret := os.Getenv("SLACK_SIGNING_SECRET"); secret != "" {
+				handler := dispatch.NewSlackInteractionHandler(secret, dispatcher, "octi-pulpo-daemon")
+				ws.SetSlackInteractions(handler)
+			}
 			go func() {
 				if err := brain.Run(ctx); err != nil && ctx.Err() == nil {
 					fmt.Fprintf(os.Stderr, "brain: %v\n", err)
