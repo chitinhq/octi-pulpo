@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AgentGuardHQ/octi-pulpo/internal/crosssquad"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
@@ -42,6 +43,7 @@ type LeverageAction struct {
 //   - Sprint store sync: periodically refresh issue data from GitHub
 //   - Driver health probe: ping each driver every 15 min to detect stale state
 //   - Slack notifications: periodic budget dashboard + driver state change alerts
+//   - Cross-squad routing: dispatch target SRs for pending cross-squad requests
 type Brain struct {
 	dispatcher      *Dispatcher
 	chains          ChainConfig
@@ -50,6 +52,7 @@ type Brain struct {
 	log             *log.Logger
 	sprintStore     *sprint.Store
 	profiles        *ProfileStore
+	requestStore    *crosssquad.Store
 	notifier        *Notifier
 	lastSync        time.Time
 	lastProbe       time.Time
@@ -83,6 +86,11 @@ func (b *Brain) SetProfileStore(ps *ProfileStore) {
 // SetNotifier enables Slack notifications for driver state changes and periodic dashboards.
 func (b *Brain) SetNotifier(n *Notifier) {
 	b.notifier = n
+}
+
+// SetRequestStore enables cross-squad request dispatching in the brain.
+func (b *Brain) SetRequestStore(rs *crosssquad.Store) {
+	b.requestStore = rs
 }
 
 // Run starts the brain evaluation loop. Blocks until context is cancelled.
@@ -122,7 +130,10 @@ func (b *Brain) Tick(ctx context.Context) {
 	// 4. Periodic Slack dashboard
 	b.maybePostDashboard(ctx)
 
-	// 5. Constraint-driven dispatch (if sprint store is available)
+	// 5. Cross-squad request routing — dispatch SRs for pending requests
+	b.dispatchCrossSquadRequests(ctx)
+
+	// 6. Constraint-driven dispatch (if sprint store is available)
 	if b.sprintStore != nil {
 		constraint := b.identifyConstraint(ctx)
 		b.maybeNotifyConstraintChange(ctx, constraint)
@@ -539,6 +550,40 @@ func (b *Brain) srForSquad(squad string) string {
 		"analytics":  "analytics-sr",
 	}
 	return mapping[squad]
+}
+
+// dispatchCrossSquadRequests checks the cross-squad request store and dispatches
+// the target squad's SR for each squad that has pending requests.
+func (b *Brain) dispatchCrossSquadRequests(ctx context.Context) {
+	if b.requestStore == nil {
+		return
+	}
+	squads, err := b.requestStore.PendingSquads(ctx)
+	if err != nil || len(squads) == 0 {
+		return
+	}
+	for _, squad := range squads {
+		agent := b.srForSquad(squad)
+		if agent == "" {
+			b.log.Printf("cross-squad: no SR mapping for squad %q — skipping", squad)
+			continue
+		}
+		event := Event{
+			Type:   EventType("cross-squad.request"),
+			Source: "brain",
+			Payload: map[string]string{
+				"squad":  squad,
+				"reason": fmt.Sprintf("pending cross-squad requests for squad %s — check_requests to see them", squad),
+			},
+			Priority: 1,
+		}
+		result, err := b.dispatcher.Dispatch(ctx, event, agent, 1)
+		if err != nil {
+			b.log.Printf("cross-squad dispatch %s: %v", agent, err)
+			continue
+		}
+		b.log.Printf("cross-squad: dispatched %s for squad %s requests (%s)", agent, squad, result.Action)
+	}
 }
 
 // checkBackpressureRecovery looks for agents that were queued due to
