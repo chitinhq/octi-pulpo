@@ -13,14 +13,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
 // WebhookServer is a lightweight HTTP server for receiving GitHub webhooks.
 // It replaces webhook-listener.py with coordinated dispatch.
 type WebhookServer struct {
-	dispatcher *Dispatcher
-	secret     []byte
-	mux        *http.ServeMux
+	dispatcher  *Dispatcher
+	secret      []byte
+	mux         *http.ServeMux
+	sprintStore *sprint.Store
+	benchmark   *BenchmarkTracker
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -46,7 +50,20 @@ func NewWebhookServer(dispatcher *Dispatcher, secretFile string) *WebhookServer 
 	ws.mux.HandleFunc("/dispatch/status", ws.handleStatus)
 	ws.mux.HandleFunc("/dispatch/trigger", ws.handleTrigger)
 	ws.mux.HandleFunc("/dispatch/timer", ws.handleTimerTrigger)
+	ws.mux.HandleFunc("/sprint/status", ws.handleSprintStatus)
+	ws.mux.HandleFunc("/sprint/sync", ws.handleSprintSync)
+	ws.mux.HandleFunc("/benchmark", ws.handleBenchmark)
 	return ws
+}
+
+// SetSprintStore enables sprint HTTP endpoints.
+func (ws *WebhookServer) SetSprintStore(s *sprint.Store) {
+	ws.sprintStore = s
+}
+
+// SetBenchmark enables benchmark HTTP endpoints.
+func (ws *WebhookServer) SetBenchmark(bt *BenchmarkTracker) {
+	ws.benchmark = bt
 }
 
 // ServeHTTP implements the http.Handler interface.
@@ -220,6 +237,81 @@ func (ws *WebhookServer) handleTimerTrigger(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func (ws *WebhookServer) handleSprintStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if ws.sprintStore == nil {
+		http.Error(w, "sprint store not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx := context.Background()
+	items, err := ws.sprintStore.GetAll(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Group by squad
+	grouped := make(map[string][]sprint.SprintItem)
+	for _, item := range items {
+		grouped[item.Squad] = append(grouped[item.Squad], item)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(grouped)
+}
+
+func (ws *WebhookServer) handleSprintSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if ws.sprintStore == nil {
+		http.Error(w, "sprint store not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx := context.Background()
+	var results []map[string]string
+	for _, repo := range sprint.DefaultRepos {
+		entry := map[string]string{"repo": repo}
+		if err := ws.sprintStore.Sync(ctx, repo); err != nil {
+			entry["status"] = "error"
+			entry["error"] = err.Error()
+		} else {
+			entry["status"] = "synced"
+		}
+		results = append(results, entry)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"results": results})
+}
+
+func (ws *WebhookServer) handleBenchmark(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if ws.benchmark == nil {
+		http.Error(w, "benchmark tracker not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx := context.Background()
+	metrics, err := ws.benchmark.Compute(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
 }
 
 func (ws *WebhookServer) parseGitHubEvent(eventType, action, repo string, payload map[string]interface{}) *Event {

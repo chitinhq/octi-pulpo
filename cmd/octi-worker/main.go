@@ -75,6 +75,10 @@ func main() {
 	eventRouter := dispatch.NewEventRouter(dispatch.DefaultRules())
 	dispatcher := dispatch.NewDispatcher(rdb, router, coord, eventRouter, "", namespace)
 
+	// Set up adaptive cooldown profiles
+	profiles := dispatch.NewProfileStore(rdb, namespace, eventRouter.CooldownFor)
+	dispatcher.SetProfiles(profiles)
+
 	// Load completion chains for reactive dispatch
 	chains := dispatch.DefaultChains()
 	fmt.Fprintf(os.Stderr, "octi-worker: loaded %d completion chains\n", len(chains))
@@ -151,11 +155,13 @@ func workerLoop(ctx context.Context, d *dispatch.Dispatcher, script string, id i
 			fmt.Fprintf(os.Stderr, "worker[%d]: release claim error for %s: %v\n", id, agent, err)
 		}
 
-		// Record result for observability
-		d.RecordWorkerResult(releaseCtx, agent, exitCode, duration)
+		// Check for commits before recording result (needed for adaptive cooldowns)
+		madeCommits := dispatch.CheckForCommits(agent, workspaceDir)
+
+		// Record result for observability + adaptive cooldowns
+		d.RecordWorkerResult(releaseCtx, agent, exitCode, duration, madeCommits)
 
 		// Trigger completion chains — dispatch follow-up agents based on result
-		madeCommits := dispatch.CheckForCommits(agent, workspaceDir)
 		if madeCommits {
 			fmt.Fprintf(os.Stderr, "worker[%d]: %s made commits, checking chains\n", id, agent)
 		}

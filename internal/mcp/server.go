@@ -12,6 +12,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
 // ToolDef describes an MCP tool for the ListTools response.
@@ -45,10 +46,12 @@ type RPCError struct {
 
 // Server is the Octi Pulpo MCP server.
 type Server struct {
-	mem        *memory.Store
-	coord      *coordination.Engine
-	router     *routing.Router
-	dispatcher *dispatch.Dispatcher
+	mem         *memory.Store
+	coord       *coordination.Engine
+	router      *routing.Router
+	dispatcher  *dispatch.Dispatcher
+	sprintStore *sprint.Store
+	benchmark   *dispatch.BenchmarkTracker
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -59,6 +62,16 @@ func New(mem *memory.Store, coord *coordination.Engine, router *routing.Router) 
 // SetDispatcher adds dispatch capabilities to the MCP server.
 func (s *Server) SetDispatcher(d *dispatch.Dispatcher) {
 	s.dispatcher = d
+}
+
+// SetSprintStore enables sprint-related MCP tools.
+func (s *Server) SetSprintStore(ss *sprint.Store) {
+	s.sprintStore = ss
+}
+
+// SetBenchmark enables throughput metrics MCP tools.
+func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
+	s.benchmark = bt
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -285,15 +298,56 @@ func (s *Server) handleToolCall(req Request) Response {
 			return errorResp(req.ID, -32602, "agent name is required")
 		}
 		event := dispatch.Event{
-			Type:     dispatch.EventManual,
-			Source:   "mcp",
-			Payload:  map[string]string{"triggered_by": agentID},
+			Type:    dispatch.EventManual,
+			Source:  "mcp",
+			Payload: map[string]string{"triggered_by": agentID},
 		}
 		result, err := s.dispatcher.Dispatch(ctx, event, args.Agent, args.Priority)
 		if err != nil {
 			return errorResp(req.ID, -32000, err.Error())
 		}
 		data, _ := json.Marshal(result)
+		return textResult(req.ID, string(data))
+
+	case "sprint_status":
+		if s.sprintStore == nil {
+			return errorResp(req.ID, -32000, "sprint store not initialized")
+		}
+		items, err := s.sprintStore.GetAll(ctx)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		// Group by squad
+		grouped := make(map[string][]sprint.SprintItem)
+		for _, item := range items {
+			grouped[item.Squad] = append(grouped[item.Squad], item)
+		}
+		data, _ := json.Marshal(grouped)
+		return textResult(req.ID, string(data))
+
+	case "sprint_sync":
+		if s.sprintStore == nil {
+			return errorResp(req.ID, -32000, "sprint store not initialized")
+		}
+		var synced []string
+		for _, repo := range sprint.DefaultRepos {
+			if err := s.sprintStore.Sync(ctx, repo); err != nil {
+				synced = append(synced, fmt.Sprintf("%s: error: %v", repo, err))
+			} else {
+				synced = append(synced, fmt.Sprintf("%s: synced", repo))
+			}
+		}
+		return textResult(req.ID, strings.Join(synced, "\n"))
+
+	case "benchmark_status":
+		if s.benchmark == nil {
+			return errorResp(req.ID, -32000, "benchmark tracker not initialized")
+		}
+		metrics, err := s.benchmark.Compute(ctx)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		data, _ := json.Marshal(metrics)
 		return textResult(req.ID, string(data))
 
 	default:
@@ -426,6 +480,30 @@ func toolDefs() []ToolDef {
 					"priority": map[string]interface{}{"type": "number", "description": "Priority (0=critical, 1=high, 2=normal, 3=background). Default: 1"},
 				},
 				"required": []string{"agent"},
+			},
+		},
+		{
+			Name:        "sprint_status",
+			Description: "Return all sprint items grouped by squad. Shows issue numbers, titles, priority, status, and dependencies.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "sprint_sync",
+			Description: "Trigger a sync of sprint items from GitHub issues across all tracked repos.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "benchmark_status",
+			Description: "Return swarm throughput metrics: PRs/hour, commits/run, waste %, budget efficiency, active agents, queue depth, pass rate.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 	}

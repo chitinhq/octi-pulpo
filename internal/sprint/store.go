@@ -1,0 +1,338 @@
+package sprint
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// SprintItem represents a single issue in the sprint backlog.
+type SprintItem struct {
+	Squad     string `json:"squad"`
+	IssueNum  int    `json:"issue_num"`
+	Repo      string `json:"repo"`
+	Title     string `json:"title"`
+	Priority  int    `json:"priority"`    // 0=P0, 1=P1, 2=P2
+	DependsOn []int  `json:"depends_on"`  // issue numbers that must complete first
+	AssignTo  string `json:"assign_to"`   // agent name
+	Status    string `json:"status"`      // open, claimed, in_progress, pr_open, done
+	PRNumber  int    `json:"pr_number"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// Store manages sprint items in Redis, synced from GitHub issues.
+type Store struct {
+	rdb       *redis.Client
+	namespace string
+	log       *log.Logger
+}
+
+// DefaultRepos is the standard set of repos to sync.
+var DefaultRepos = []string{
+	"AgentGuardHQ/agentguard",
+	"AgentGuardHQ/octi-pulpo",
+	"AgentGuardHQ/shellforge",
+}
+
+// NewStore creates a sprint store backed by Redis.
+func NewStore(rdb *redis.Client, namespace string) *Store {
+	return &Store{
+		rdb:       rdb,
+		namespace: namespace,
+		log:       log.New(os.Stderr, "sprint-store: ", log.LstdFlags),
+	}
+}
+
+// ghIssue is the JSON shape returned by `gh issue list --json`.
+type ghIssue struct {
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	Labels    []struct {
+		Name string `json:"name"`
+	} `json:"labels"`
+	Assignees []struct {
+		Login string `json:"login"`
+	} `json:"assignees"`
+}
+
+// Sync fetches open issues from a GitHub repo and stores them in Redis.
+// Issues labeled "sprint" get priority 0, others get priority 2.
+func (s *Store) Sync(ctx context.Context, repo string) error {
+	cmd := exec.CommandContext(ctx, "gh", "issue", "list",
+		"-R", repo,
+		"--state", "open",
+		"--json", "number,title,labels,assignees",
+		"-L", "50",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("gh issue list -R %s: %w", repo, err)
+	}
+
+	var issues []ghIssue
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return fmt.Errorf("parse gh output for %s: %w", repo, err)
+	}
+
+	pipe := s.rdb.Pipeline()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	for _, issue := range issues {
+		// Determine priority from labels
+		priority := 2
+		for _, lbl := range issue.Labels {
+			if lbl.Name == "sprint" {
+				priority = 0
+				break
+			}
+			if lbl.Name == "P1" || lbl.Name == "p1" {
+				priority = 1
+			}
+		}
+
+		// Determine assignee
+		assignTo := ""
+		if len(issue.Assignees) > 0 {
+			assignTo = issue.Assignees[0].Login
+		}
+
+		// Infer squad from repo
+		squad := inferSquadFromRepo(repo)
+
+		// Check if item already exists (preserve status)
+		key := s.itemKey(repo, issue.Number)
+		existing, _ := s.rdb.Get(ctx, key).Result()
+
+		item := SprintItem{
+			Squad:     squad,
+			IssueNum:  issue.Number,
+			Repo:      repo,
+			Title:     issue.Title,
+			Priority:  priority,
+			AssignTo:  assignTo,
+			Status:    "open",
+			UpdatedAt: now,
+		}
+
+		// Preserve status from existing item if it was already tracked
+		if existing != "" {
+			var prev SprintItem
+			if err := json.Unmarshal([]byte(existing), &prev); err == nil {
+				if prev.Status != "" && prev.Status != "open" {
+					item.Status = prev.Status
+				}
+				if prev.PRNumber > 0 {
+					item.PRNumber = prev.PRNumber
+				}
+				if len(prev.DependsOn) > 0 {
+					item.DependsOn = prev.DependsOn
+				}
+			}
+		}
+
+		data, err := json.Marshal(item)
+		if err != nil {
+			continue
+		}
+
+		pipe.Set(ctx, key, data, 0)
+	}
+
+	// Track which repos have been synced
+	pipe.SAdd(ctx, s.key("sprint-repos"), repo)
+
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("redis pipeline for %s: %w", repo, err)
+	}
+
+	s.log.Printf("synced %d issues from %s", len(issues), repo)
+	return nil
+}
+
+// NextDispatchable returns sprint items that are ready to work on:
+// status=open, no active claim, all dependencies met (deps have status=done).
+// Sorted by priority (P0 first).
+func (s *Store) NextDispatchable(ctx context.Context) ([]SprintItem, error) {
+	all, err := s.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build a set of done issue numbers for dependency checks
+	doneSet := make(map[int]bool)
+	for _, item := range all {
+		if item.Status == "done" {
+			doneSet[item.IssueNum] = true
+		}
+	}
+
+	var dispatchable []SprintItem
+	for _, item := range all {
+		if item.Status != "open" {
+			continue
+		}
+
+		// Check all dependencies are met
+		depsMet := true
+		for _, dep := range item.DependsOn {
+			if !doneSet[dep] {
+				depsMet = false
+				break
+			}
+		}
+		if !depsMet {
+			continue
+		}
+
+		dispatchable = append(dispatchable, item)
+	}
+
+	// Sort by priority (P0 first), then by issue number (FIFO)
+	sort.Slice(dispatchable, func(i, j int) bool {
+		if dispatchable[i].Priority != dispatchable[j].Priority {
+			return dispatchable[i].Priority < dispatchable[j].Priority
+		}
+		return dispatchable[i].IssueNum < dispatchable[j].IssueNum
+	})
+
+	return dispatchable, nil
+}
+
+// UpdateStatus updates the status of a sprint item.
+func (s *Store) UpdateStatus(ctx context.Context, repo string, issueNum int, status string) error {
+	key := s.itemKey(repo, issueNum)
+	raw, err := s.rdb.Get(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("get sprint item %s#%d: %w", repo, issueNum, err)
+	}
+
+	var item SprintItem
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return fmt.Errorf("parse sprint item: %w", err)
+	}
+
+	item.Status = status
+	item.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	data, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+
+	return s.rdb.Set(ctx, key, data, 0).Err()
+}
+
+// GetAll returns all sprint items across all synced repos.
+func (s *Store) GetAll(ctx context.Context) ([]SprintItem, error) {
+	repos, err := s.rdb.SMembers(ctx, s.key("sprint-repos")).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var items []SprintItem
+	for _, repo := range repos {
+		repoItems, err := s.getByRepo(ctx, repo)
+		if err != nil {
+			s.log.Printf("get items for %s: %v", repo, err)
+			continue
+		}
+		items = append(items, repoItems...)
+	}
+
+	return items, nil
+}
+
+// GetBySquad returns sprint items filtered by squad name.
+func (s *Store) GetBySquad(ctx context.Context, squad string) ([]SprintItem, error) {
+	all, err := s.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var filtered []SprintItem
+	for _, item := range all {
+		if item.Squad == squad {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
+}
+
+// getByRepo returns all sprint items for a specific repo by scanning Redis keys.
+func (s *Store) getByRepo(ctx context.Context, repo string) ([]SprintItem, error) {
+	pattern := s.namespace + ":sprint:" + repo + ":*"
+	keys, err := s.rdb.Keys(ctx, pattern).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	vals, err := s.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var items []SprintItem
+	for _, v := range vals {
+		if v == nil {
+			continue
+		}
+		str, ok := v.(string)
+		if !ok {
+			continue
+		}
+		var item SprintItem
+		if err := json.Unmarshal([]byte(str), &item); err != nil {
+			continue
+		}
+		items = append(items, item)
+	}
+
+	return items, nil
+}
+
+func (s *Store) itemKey(repo string, issueNum int) string {
+	return s.namespace + ":sprint:" + repo + ":" + strconv.Itoa(issueNum)
+}
+
+func (s *Store) key(suffix string) string {
+	return s.namespace + ":" + suffix
+}
+
+// inferSquadFromRepo maps a repo name to a squad.
+func inferSquadFromRepo(repo string) string {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return "unknown"
+	}
+	name := parts[1]
+	switch {
+	case name == "agentguard":
+		return "kernel"
+	case name == "agentguard-cloud":
+		return "cloud"
+	case name == "agentguard-analytics":
+		return "analytics"
+	case name == "shellforge":
+		return "shellforge"
+	case name == "octi-pulpo":
+		return "octi-pulpo"
+	case strings.HasPrefix(name, "studio"):
+		return "studio"
+	default:
+		return name
+	}
+}
