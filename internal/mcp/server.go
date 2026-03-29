@@ -53,6 +53,7 @@ type Server struct {
 	dispatcher  *dispatch.Dispatcher
 	sprintStore *sprint.Store
 	benchmark   *dispatch.BenchmarkTracker
+	profiles    *dispatch.ProfileStore
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -73,6 +74,11 @@ func (s *Server) SetSprintStore(ss *sprint.Store) {
 // SetBenchmark enables throughput metrics MCP tools.
 func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
 	s.benchmark = bt
+}
+
+// SetProfileStore enables the agent leaderboard MCP tool.
+func (s *Server) SetProfileStore(ps *dispatch.ProfileStore) {
+	s.profiles = ps
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -352,6 +358,16 @@ func (s *Server) handleToolCall(req Request) Response {
 		data, _ := json.Marshal(metrics)
 		return textResult(req.ID, string(data))
 
+	case "agent_leaderboard":
+		if s.profiles == nil {
+			return errorResp(req.ID, -32000, "profile store not initialized")
+		}
+		entries, err := s.profiles.Leaderboard(ctx)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, dispatch.FormatLeaderboard(entries))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -551,6 +567,14 @@ func toolDefs() []ToolDef {
 		{
 			Name:        "benchmark_status",
 			Description: "Return swarm throughput metrics: PRs/hour, commits/run, waste %, budget efficiency, active agents, queue depth, pass rate.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "agent_leaderboard",
+			Description: "Rank all agents by productivity score. Returns a scored, sorted list with verdicts (promote/retain/monitor/fire) derived from commit output, reliability, and execution duration. Agents with no run history are omitted.",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},

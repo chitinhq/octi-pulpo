@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -232,4 +233,44 @@ func (ps *ProfileStore) recompute(p *AgentProfile) {
 
 func (ps *ProfileStore) profileKey(agent string) string {
 	return ps.namespace + ":profile:" + agent
+}
+
+// AllProfiles returns every agent profile stored in this namespace.
+// Uses Redis SCAN to enumerate profile keys without blocking.
+func (ps *ProfileStore) AllProfiles(ctx context.Context) ([]AgentProfile, error) {
+	pattern := ps.namespace + ":profile:*"
+	prefix := ps.namespace + ":profile:"
+
+	var keys []string
+	iter := ps.rdb.Scan(ctx, 0, pattern, 100).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("scan profiles: %w", err)
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	values, err := ps.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("mget profiles: %w", err)
+	}
+
+	profiles := make([]AgentProfile, 0, len(keys))
+	for i, v := range values {
+		if v == nil {
+			continue
+		}
+		var p AgentProfile
+		if err := json.Unmarshal([]byte(v.(string)), &p); err != nil {
+			continue
+		}
+		if p.Name == "" {
+			p.Name = strings.TrimPrefix(keys[i], prefix)
+		}
+		profiles = append(profiles, p)
+	}
+	return profiles, nil
 }
