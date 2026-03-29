@@ -246,3 +246,173 @@ func TestDiscoverDrivers_NonexistentDir(t *testing.T) {
 		t.Fatalf("expected nil for nonexistent dir, got %v", drivers)
 	}
 }
+
+// ── task-type minimum tier ─────────────────────────────────────────────────
+
+func TestRecommend_CodeReviewSkipsLocalTier(t *testing.T) {
+	dir := t.TempDir()
+	// Both ollama (local) and claude-code (cli) are healthy.
+	// "code-review" task type requires minimum CLI tier, so ollama must be skipped.
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("code-review", "high")
+
+	if dec.Skip {
+		t.Fatal("expected a recommendation, got Skip")
+	}
+	if dec.Driver != "claude-code" {
+		t.Fatalf("expected claude-code (CLI tier min for code-review), got %s", dec.Driver)
+	}
+	if dec.Tier != string(TierCLI) {
+		t.Fatalf("expected tier cli, got %s", dec.Tier)
+	}
+	// ollama should NOT be a fallback — it's below the capability floor
+	for _, fb := range dec.Fallbacks {
+		if fb == "ollama" {
+			t.Fatal("ollama should not appear as fallback for code-review (below min tier)")
+		}
+	}
+}
+
+func TestRecommend_BriefingSkipsLocalTier(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "openclaw", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("briefing", "high")
+
+	if dec.Skip {
+		t.Fatal("expected a recommendation, got Skip")
+	}
+	if dec.Tier != string(TierSubscription) {
+		t.Fatalf("expected subscription tier for briefing task, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_ClassificationUsesLocalTier(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("classification", "high")
+
+	if dec.Skip {
+		t.Fatal("expected a recommendation, got Skip")
+	}
+	// classification has no minimum tier — local is capable and cheapest
+	if dec.Driver != "ollama" {
+		t.Fatalf("expected ollama (local tier for classification), got %s", dec.Driver)
+	}
+}
+
+func TestRecommend_TaskTypeBudgetConflict(t *testing.T) {
+	dir := t.TempDir()
+	// code-review needs CLI (minTier=cli), but budget is "low" (maxTier=local)
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("code-review", "low")
+
+	if !dec.Skip {
+		t.Fatalf("expected Skip when minTier(cli) > maxTier(local), got driver=%s", dec.Driver)
+	}
+	if dec.Reason == "" {
+		t.Fatal("expected a reason explaining the budget/capability conflict")
+	}
+}
+
+// ── API tier ───────────────────────────────────────────────────────────────
+
+func TestRecommend_APITierFallback(t *testing.T) {
+	dir := t.TempDir()
+	// All local/subscription/CLI drivers are OPEN — should fall through to API tier.
+	writeHealth(t, dir, "ollama", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "openclaw", HealthFile{State: "OPEN", Failures: 3})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 8})
+	writeHealth(t, dir, "anthropic", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any-task", "high")
+
+	if dec.Skip {
+		t.Fatal("expected API-tier fallback, got Skip")
+	}
+	if dec.Driver != "anthropic" {
+		t.Fatalf("expected anthropic (only healthy driver at API tier), got %s", dec.Driver)
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected tier api, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_APITierNotUsedAtMediumBudget(t *testing.T) {
+	dir := t.TempDir()
+	// CLI driver is OPEN — would cascade to API, but budget is "medium" (cap=cli).
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "anthropic", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("task", "medium")
+
+	if !dec.Skip {
+		t.Fatalf("expected Skip (medium budget forbids API tier), got driver=%s", dec.Driver)
+	}
+}
+
+func TestRecommend_SubscriptionSubDrivers(t *testing.T) {
+	dir := t.TempDir()
+	// Multiple subscription-tier drivers; any one is valid.
+	writeHealth(t, dir, "chatgpt", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "notebooklm", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("task", "high")
+
+	if dec.Skip {
+		t.Fatal("expected a recommendation, got Skip")
+	}
+	// subscription tier is cheaper than CLI — should pick one of the subscription drivers
+	if dec.Tier != string(TierSubscription) {
+		t.Fatalf("expected subscription tier, got %s (driver: %s)", dec.Tier, dec.Driver)
+	}
+}
+
+func TestTaskTypeMinTier(t *testing.T) {
+	cases := []struct {
+		taskType string
+		wantTier CostTier
+	}{
+		{"code-review", TierCLI},
+		{"pr", TierCLI},
+		{"commit", TierCLI},
+		{"coding", TierCLI},
+		{"test", TierCLI},
+		{"refactor", TierCLI},
+		{"debug", TierCLI},
+		{"briefing", TierSubscription},
+		{"research", TierSubscription},
+		{"artifact", TierSubscription},
+		{"document", TierSubscription},
+		{"notebook", TierSubscription},
+		{"api", TierAPI},
+		{"burst", TierAPI},
+		{"programmatic", TierAPI},
+		{"classification", TierLocal},
+		{"triage", TierLocal},
+		{"summarisation", TierLocal},
+		{"simple-task", TierLocal},
+		{"", TierLocal},
+	}
+	for _, tc := range cases {
+		got := taskTypeMinTier(tc.taskType)
+		if got != tc.wantTier {
+			t.Errorf("taskTypeMinTier(%q) = %s, want %s", tc.taskType, got, tc.wantTier)
+		}
+	}
+}
