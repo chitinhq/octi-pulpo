@@ -55,7 +55,7 @@ func TestRecommend_SkipsOpenDrivers(t *testing.T) {
 	}
 }
 
-func TestRecommend_AllDriversOpen(t *testing.T) {
+func TestRecommend_CLIDriversOpen_FallsToAPI(t *testing.T) {
 	dir := t.TempDir()
 	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 10})
 	writeHealth(t, dir, "copilot", HealthFile{State: "OPEN", Failures: 8})
@@ -63,8 +63,26 @@ func TestRecommend_AllDriversOpen(t *testing.T) {
 	r := NewRouter(dir)
 	dec := r.Recommend("anything", "high")
 
+	// CLI drivers OPEN — cascade must fall through to API tier.
+	if dec.Skip {
+		t.Fatal("expected API tier fallback when CLI drivers OPEN, got Skip")
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected API tier fallback, got tier=%s driver=%s", dec.Tier, dec.Driver)
+	}
+}
+
+func TestRecommend_AllTiersExhausted_Skip(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 10})
+	writeHealth(t, dir, "anthropic-api", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "openai-api", HealthFile{State: "OPEN", Failures: 3})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("anything", "high")
+
 	if !dec.Skip {
-		t.Fatalf("expected Skip=true when all drivers OPEN, got driver=%s", dec.Driver)
+		t.Fatalf("expected Skip when all tiers exhausted, got driver=%s tier=%s", dec.Driver, dec.Tier)
 	}
 	if dec.Reason == "" {
 		t.Fatal("expected a reason when skipping")
@@ -116,15 +134,19 @@ func TestRecommend_MissingHealthFileDefaultsClosed(t *testing.T) {
 	}
 }
 
-func TestRecommend_NoDriversAvailable(t *testing.T) {
+func TestRecommend_NoLocalCLIDrivers_FallsToAPI(t *testing.T) {
 	dir := t.TempDir()
-	// Empty directory — no drivers discovered
+	// No health files for local/subscription/CLI drivers —
+	// API tier is always seeded and should be the last-resort fallback.
 
 	r := NewRouter(dir)
 	dec := r.Recommend("any-task", "high")
 
-	if !dec.Skip {
-		t.Fatalf("expected Skip=true with no drivers, got driver=%s", dec.Driver)
+	if dec.Skip {
+		t.Fatal("expected API tier fallback when no other drivers registered, got Skip")
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected API tier fallback, got tier=%s driver=%s", dec.Tier, dec.Driver)
 	}
 }
 
@@ -244,5 +266,67 @@ func TestDiscoverDrivers_NonexistentDir(t *testing.T) {
 	drivers := DiscoverDrivers("/nonexistent/path/that/does/not/exist")
 	if drivers != nil {
 		t.Fatalf("expected nil for nonexistent dir, got %v", drivers)
+	}
+}
+
+// TestRecommend_APITierAlwaysAvailable verifies that API drivers are candidates
+// even when they have no health file on disk, enabling the cascade to reach API
+// tier without requiring an explicit registration step.
+func TestRecommend_APITierAlwaysAvailable(t *testing.T) {
+	dir := t.TempDir()
+	// Only a CLI driver health file — no API health files written.
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 3})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("task", "high")
+
+	if dec.Skip {
+		t.Fatal("expected API tier fallback even without API health files, got Skip")
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected API tier, got tier=%s driver=%s", dec.Tier, dec.Driver)
+	}
+}
+
+// TestRecommend_DeterministicSelection verifies that repeated calls with identical
+// state always return the same driver (no map-iteration randomness).
+func TestRecommend_DeterministicSelection(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED"})
+	writeHealth(t, dir, "copilot", HealthFile{State: "CLOSED"})
+	// Suppress cheaper tiers so selection stays in CLI.
+	writeHealth(t, dir, "ollama", HealthFile{State: "OPEN"})
+	writeHealth(t, dir, "nemotron", HealthFile{State: "OPEN"})
+	writeHealth(t, dir, "openclaw", HealthFile{State: "OPEN"})
+
+	r := NewRouter(dir)
+	first := r.Recommend("task", "medium") // medium budget: local+subscription+cli, no API
+	second := r.Recommend("task", "medium")
+
+	if first.Driver != second.Driver {
+		t.Fatalf("non-deterministic: got %s then %s", first.Driver, second.Driver)
+	}
+	// Alphabetically first healthy CLI driver is claude-code.
+	if first.Driver != "claude-code" {
+		t.Fatalf("expected claude-code (alphabetically first in CLI tier), got %s", first.Driver)
+	}
+}
+
+// TestRecommend_APIDriverMarkedOpen verifies that an API driver with an OPEN
+// health file is correctly skipped during the cascade.
+func TestRecommend_APIDriverMarkedOpen(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN"})
+	writeHealth(t, dir, "anthropic-api", HealthFile{State: "OPEN"})
+	// openai-api has no health file — defaults to CLOSED.
+
+	r := NewRouter(dir)
+	dec := r.Recommend("task", "high")
+
+	if dec.Skip {
+		t.Fatal("expected openai-api as fallback, got Skip")
+	}
+	if dec.Driver != "openai-api" {
+		t.Fatalf("expected openai-api (only healthy API driver), got %s", dec.Driver)
 	}
 }

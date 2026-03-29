@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -33,6 +34,9 @@ var driverTiers = map[string]CostTier{
 	"codex":       TierCLI,
 	"gemini":      TierCLI,
 	"goose":       TierCLI,
+	// API (direct, per-token — always reachable, no health file required)
+	"anthropic-api": TierAPI,
+	"openai-api":    TierAPI,
 }
 
 // DriverHealth represents the runtime health of a single driver.
@@ -77,13 +81,31 @@ func NewRouter(healthDir string) *Router {
 //   - ""       -> all tiers (default)
 func (r *Router) Recommend(taskType, budget string) RouteDecision {
 	maxTier := maxTierForBudget(budget)
-	drivers := DiscoverDrivers(r.healthDir)
 
-	// Build health map from discovered drivers.
-	// Only drivers with health files on disk are candidates.
+	// Build health map from discovered drivers (those with health files on disk).
 	healthMap := make(map[string]DriverHealth)
-	for _, d := range drivers {
+	for _, d := range DiscoverDrivers(r.healthDir) {
 		healthMap[d] = ReadDriverHealth(r.healthDir, d)
+	}
+
+	// API tier drivers are always seeded as candidates — direct API calls need
+	// no local registration. A health file can still mark them OPEN to skip them.
+	for name, tier := range driverTiers {
+		if tier == TierAPI {
+			if _, ok := healthMap[name]; !ok {
+				healthMap[name] = ReadDriverHealth(r.healthDir, name)
+			}
+		}
+	}
+
+	// Build sorted driver lists per tier for deterministic selection.
+	tierDrivers := make(map[CostTier][]string)
+	for name := range healthMap {
+		t := tierFor(name)
+		tierDrivers[t] = append(tierDrivers[t], name)
+	}
+	for t := range tierDrivers {
+		sort.Strings(tierDrivers[t])
 	}
 
 	var chosen *RouteDecision
@@ -94,11 +116,8 @@ func (r *Router) Recommend(taskType, budget string) RouteDecision {
 		if tierIndex(tier) > tierIndex(maxTier) {
 			break
 		}
-		for name, health := range healthMap {
-			driverTier := tierFor(name)
-			if driverTier != tier {
-				continue
-			}
+		for _, name := range tierDrivers[tier] {
+			health := healthMap[name]
 			if health.CircuitState == "OPEN" {
 				continue // skip exhausted drivers
 			}
