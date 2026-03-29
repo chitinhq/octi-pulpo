@@ -11,6 +11,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/mcp"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -59,14 +60,28 @@ func main() {
 	eventRouter := dispatch.NewEventRouter(dispatch.DefaultRules())
 	dispatcher := dispatch.NewDispatcher(rdb, router, coord, eventRouter, queueFile, namespace)
 
+	// Set up adaptive cooldown profiles
+	profiles := dispatch.NewProfileStore(rdb, namespace, eventRouter.CooldownFor)
+	dispatcher.SetProfiles(profiles)
+
+	// Set up sprint store
+	sprintStore := sprint.NewStore(rdb, namespace)
+
+	// Set up benchmark tracker
+	benchmark := dispatch.NewBenchmarkTracker(rdb, namespace)
+
 	server := mcp.New(mem, coord, router)
 	server.SetDispatcher(dispatcher)
+	server.SetSprintStore(sprintStore)
+	server.SetBenchmark(benchmark)
 
 	// Optional HTTP mode: run webhook server alongside MCP
 	httpPort := os.Getenv("OCTI_HTTP_PORT")
 	if httpPort != "" {
 		secretFile := os.Getenv("AGENTGUARD_WEBHOOK_SECRET_FILE")
 		ws := dispatch.NewWebhookServer(dispatcher, secretFile)
+		ws.SetSprintStore(sprintStore)
+		ws.SetBenchmark(benchmark)
 
 		// Daemon mode: if OCTI_DAEMON=1 or stdin is not a terminal, run HTTP only (no MCP stdio)
 		daemon := os.Getenv("OCTI_DAEMON") == "1"
@@ -90,16 +105,18 @@ func main() {
 				}
 			}()
 
-			// Start brain — periodic intelligence loop
+			// Start brain — periodic intelligence loop with sprint + profile awareness
 			chains := dispatch.DefaultChains()
 			brain := dispatch.NewBrain(dispatcher, chains)
+			brain.SetSprintStore(sprintStore)
+			brain.SetProfileStore(profiles)
 			go func() {
 				if err := brain.Run(ctx); err != nil && ctx.Err() == nil {
 					fmt.Fprintf(os.Stderr, "brain: %v\n", err)
 				}
 			}()
 
-			fmt.Fprintf(os.Stderr, "octi-pulpo daemon: signal watcher + brain started\n")
+			fmt.Fprintf(os.Stderr, "octi-pulpo daemon: signal watcher + brain + sprint store + benchmarks started\n")
 
 			if err := ws.ListenAndServe(addr); err != nil {
 				fmt.Fprintf(os.Stderr, "webhook server: %v\n", err)

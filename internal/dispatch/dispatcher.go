@@ -38,7 +38,8 @@ type Dispatcher struct {
 	router    *routing.Router
 	coord     *coordination.Engine
 	events    *EventRouter
-	queueFile string // ~/.agentguard/queue.txt (compatibility bridge)
+	profiles  *ProfileStore // adaptive cooldowns (nil = use static)
+	queueFile string        // ~/.agentguard/queue.txt (compatibility bridge)
 	namespace string
 }
 
@@ -118,8 +119,13 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event Event, agentName string
 		return result, fmt.Errorf("claim task: %w", err)
 	}
 
-	// Set cooldown based on event rules
-	cooldown := d.events.CooldownFor(agentName)
+	// Set cooldown — use adaptive cooldown if profiles are available, else static
+	var cooldown time.Duration
+	if d.profiles != nil {
+		cooldown = d.profiles.AdaptiveCooldown(ctx, agentName)
+	} else {
+		cooldown = d.events.CooldownFor(agentName)
+	}
 	if cooldown > 0 {
 		d.rdb.Set(ctx, cooldownKey, "1", cooldown)
 	}
@@ -239,12 +245,15 @@ func (d *Dispatcher) ReleaseClaim(ctx context.Context, agentName string) error {
 }
 
 // RecordWorkerResult records a worker execution result for observability.
-func (d *Dispatcher) RecordWorkerResult(ctx context.Context, agentName string, exitCode int, durationSec float64) {
+// If profiles are enabled, also records to the agent profile for adaptive cooldowns.
+func (d *Dispatcher) RecordWorkerResult(ctx context.Context, agentName string, exitCode int, durationSec float64, hadCommits bool) {
+	now := time.Now().UTC()
 	result := map[string]interface{}{
 		"agent":        agentName,
 		"exit_code":    exitCode,
 		"duration_sec": durationSec,
-		"timestamp":    time.Now().UTC().Format(time.RFC3339),
+		"had_commits":  hadCommits,
+		"timestamp":    now.Format(time.RFC3339),
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
@@ -260,6 +269,21 @@ func (d *Dispatcher) RecordWorkerResult(ctx context.Context, agentName string, e
 		pipe.Incr(ctx, d.key("worker-fail"))
 	}
 	pipe.Exec(ctx)
+
+	// Record to profile store for adaptive cooldowns
+	if d.profiles != nil {
+		d.profiles.RecordRun(ctx, agentName, RunResult{
+			ExitCode:   exitCode,
+			Duration:   durationSec,
+			HadCommits: hadCommits,
+			Timestamp:  now.Format(time.RFC3339),
+		})
+	}
+}
+
+// SetProfiles enables adaptive cooldowns on the dispatcher.
+func (d *Dispatcher) SetProfiles(ps *ProfileStore) {
+	d.profiles = ps
 }
 
 // RedisClient returns the underlying Redis client (for workers that need direct queue access).
