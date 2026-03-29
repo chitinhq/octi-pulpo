@@ -16,6 +16,8 @@ const (
 	EventBudgetChange EventType = "budget.change"
 	EventManual       EventType = "manual"
 	EventSlackAction  EventType = "slack.action"
+	EventCompletion   EventType = "completion"    // agent finished, trigger chain
+	EventSignal       EventType = "signal"        // agent broadcast a signal
 )
 
 // Event is the core unit of work entering the dispatcher.

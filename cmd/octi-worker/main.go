@@ -75,6 +75,10 @@ func main() {
 	eventRouter := dispatch.NewEventRouter(dispatch.DefaultRules())
 	dispatcher := dispatch.NewDispatcher(rdb, router, coord, eventRouter, "", namespace)
 
+	// Load completion chains for reactive dispatch
+	chains := dispatch.DefaultChains()
+	fmt.Fprintf(os.Stderr, "octi-worker: loaded %d completion chains\n", len(chains))
+
 	fmt.Fprintf(os.Stderr, "octi-worker: starting %d workers, redis %s, namespace %s\n", workerCount, redisURL, namespace)
 	fmt.Fprintf(os.Stderr, "octi-worker: run-agent.sh at %s\n", runAgentScript)
 
@@ -94,7 +98,7 @@ func main() {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			workerLoop(shutdownCtx, dispatcher, runAgentScript, workerID, pollInterval)
+			workerLoop(shutdownCtx, dispatcher, runAgentScript, workerID, pollInterval, workspaceDir, chains)
 		}(i)
 	}
 
@@ -102,7 +106,7 @@ func main() {
 	fmt.Fprintf(os.Stderr, "octi-worker: all workers stopped\n")
 }
 
-func workerLoop(ctx context.Context, d *dispatch.Dispatcher, script string, id int, pollInterval time.Duration) {
+func workerLoop(ctx context.Context, d *dispatch.Dispatcher, script string, id int, pollInterval time.Duration, workspaceDir string, chains dispatch.ChainConfig) {
 	for {
 		// Check for shutdown
 		select {
@@ -149,6 +153,16 @@ func workerLoop(ctx context.Context, d *dispatch.Dispatcher, script string, id i
 
 		// Record result for observability
 		d.RecordWorkerResult(releaseCtx, agent, exitCode, duration)
+
+		// Trigger completion chains — dispatch follow-up agents based on result
+		madeCommits := dispatch.CheckForCommits(agent, workspaceDir)
+		if madeCommits {
+			fmt.Fprintf(os.Stderr, "worker[%d]: %s made commits, checking chains\n", id, agent)
+		}
+		chainResults := dispatch.TriggerChains(releaseCtx, d, chains, agent, exitCode, madeCommits)
+		for _, cr := range chainResults {
+			fmt.Fprintf(os.Stderr, "worker[%d]: chain %s -> %s (%s: %s)\n", id, agent, cr.Agent, cr.Action, cr.Reason)
+		}
 	}
 }
 

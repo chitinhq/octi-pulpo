@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,6 +79,28 @@ func main() {
 		if daemon {
 			addr := ":" + httpPort
 			fmt.Fprintf(os.Stderr, "octi-pulpo daemon: webhook server on %s, redis %s\n", addr, redisURL)
+
+			// Start signal watcher — reacts to agent signals via Redis pub/sub
+			sw := dispatch.NewSignalWatcher(dispatcher, rdb, namespace)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go func() {
+				if err := sw.Watch(ctx); err != nil && ctx.Err() == nil {
+					fmt.Fprintf(os.Stderr, "signal watcher: %v\n", err)
+				}
+			}()
+
+			// Start brain — periodic intelligence loop
+			chains := dispatch.DefaultChains()
+			brain := dispatch.NewBrain(dispatcher, chains)
+			go func() {
+				if err := brain.Run(ctx); err != nil && ctx.Err() == nil {
+					fmt.Fprintf(os.Stderr, "brain: %v\n", err)
+				}
+			}()
+
+			fmt.Fprintf(os.Stderr, "octi-pulpo daemon: signal watcher + brain started\n")
+
 			if err := ws.ListenAndServe(addr); err != nil {
 				fmt.Fprintf(os.Stderr, "webhook server: %v\n", err)
 				os.Exit(1)
