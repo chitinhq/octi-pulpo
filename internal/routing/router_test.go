@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -244,5 +245,149 @@ func TestDiscoverDrivers_NonexistentDir(t *testing.T) {
 	drivers := DiscoverDrivers("/nonexistent/path/that/does/not/exist")
 	if drivers != nil {
 		t.Fatalf("expected nil for nonexistent dir, got %v", drivers)
+	}
+}
+
+// --- Cost-tier cascade tests (issue #8) ---
+
+func TestRecommend_APITierInCatalog(t *testing.T) {
+	dir := t.TempDir()
+	// Register an API-tier driver; it should be routable.
+	writeHealth(t, dir, "claude-api", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation for claude-api, got Skip")
+	}
+	if dec.Driver != "claude-api" {
+		t.Fatalf("expected claude-api, got %s", dec.Driver)
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected tier api, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_FullCascade_AllLowerTiersOpen(t *testing.T) {
+	dir := t.TempDir()
+	// Local and subscription tiers all OPEN; CLI all OPEN; API healthy.
+	writeHealth(t, dir, "ollama", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "openclaw", HealthFile{State: "OPEN", Failures: 3})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 2})
+	writeHealth(t, dir, "claude-api", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any", "high")
+
+	if dec.Skip {
+		t.Fatal("expected API-tier fallback, got Skip")
+	}
+	if dec.Driver != "claude-api" {
+		t.Fatalf("expected claude-api (only healthy driver), got %s", dec.Driver)
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected tier api, got %s", dec.Tier)
+	}
+	// Cascade reason should mention the skipped tiers.
+	if !strings.Contains(dec.Reason, "cascaded past") {
+		t.Fatalf("expected cascade reason, got: %s", dec.Reason)
+	}
+}
+
+func TestRecommend_CascadeReason_MentionsSkippedTiers(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "ollama", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	if dec.Tier != string(TierCLI) {
+		t.Fatalf("expected CLI tier after local cascade, got %s", dec.Tier)
+	}
+	if !strings.Contains(dec.Reason, "local") {
+		t.Fatalf("cascade reason should mention skipped local tier, got: %s", dec.Reason)
+	}
+}
+
+func TestRecommend_TaskTypePreference_Coding(t *testing.T) {
+	dir := t.TempDir()
+	// Both are CLI tier; "coding" preference puts claude-code first.
+	writeHealth(t, dir, "copilot", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("coding", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	if dec.Driver != "claude-code" {
+		t.Fatalf("expected claude-code (preferred for coding), got %s", dec.Driver)
+	}
+}
+
+func TestRecommend_TaskTypePreference_Classification(t *testing.T) {
+	dir := t.TempDir()
+	// Both are local tier; "classification" preference puts ollama first.
+	writeHealth(t, dir, "nemotron", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("classification", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	if dec.Driver != "ollama" {
+		t.Fatalf("expected ollama (preferred for classification), got %s", dec.Driver)
+	}
+}
+
+func TestRecommend_TaskTypePreference_SkipsOPENPreferred(t *testing.T) {
+	dir := t.TempDir()
+	// claude-code is preferred for coding but OPEN; copilot should be chosen.
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 4})
+	writeHealth(t, dir, "copilot", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("coding", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	if dec.Driver != "copilot" {
+		t.Fatalf("expected copilot (preferred but claude-code OPEN), got %s", dec.Driver)
+	}
+}
+
+func TestRecommend_MediumBudgetIncludesSubscription(t *testing.T) {
+	dir := t.TempDir()
+	// All local drivers OPEN; openclaw healthy; medium budget should reach subscription tier.
+	writeHealth(t, dir, "ollama", HealthFile{State: "OPEN", Failures: 3})
+	writeHealth(t, dir, "openclaw", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-api", HealthFile{State: "CLOSED", Failures: 0}) // API should be excluded
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any", "medium")
+
+	if dec.Skip {
+		t.Fatal("expected openclaw recommendation at medium budget, got Skip")
+	}
+	if dec.Driver != "openclaw" {
+		t.Fatalf("expected openclaw, got %s", dec.Driver)
+	}
+	if dec.Tier != string(TierSubscription) {
+		t.Fatalf("expected subscription tier, got %s", dec.Tier)
+	}
+	// API driver must not appear in fallbacks for medium budget.
+	for _, fb := range dec.Fallbacks {
+		if fb == "claude-api" {
+			t.Fatal("claude-api (API tier) should not appear in fallbacks for medium budget")
+		}
 	}
 }
