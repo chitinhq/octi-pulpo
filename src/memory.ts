@@ -6,8 +6,8 @@ export class MemoryStore {
   private redis: Redis;
   private ns: string;
 
-  constructor(config: OctiConfig) {
-    this.redis = new Redis(config.redisUrl);
+  constructor(config: OctiConfig, redis?: Redis) {
+    this.redis = redis ?? new Redis(config.redisUrl);
     this.ns = config.namespace;
   }
 
