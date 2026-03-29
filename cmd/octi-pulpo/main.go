@@ -7,6 +7,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/mcp"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 )
 
 func main() {
@@ -33,7 +34,10 @@ func main() {
 	}
 	defer coord.Close()
 
-	server := mcp.New(mem, coord)
+	healthDir := os.Getenv("AGENTGUARD_HEALTH_DIR")
+	router := routing.NewRouter(healthDir) // defaults to ~/.agentguard/driver-health/
+
+	server := mcp.New(mem, coord, router)
 	if err := server.Serve(); err != nil {
 		fmt.Fprintf(os.Stderr, "server: %v\n", err)
 		os.Exit(1)

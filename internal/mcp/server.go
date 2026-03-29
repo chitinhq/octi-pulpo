@@ -10,6 +10,7 @@ import (
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 )
 
 // ToolDef describes an MCP tool for the ListTools response.
@@ -43,13 +44,14 @@ type RPCError struct {
 
 // Server is the Octi Pulpo MCP server.
 type Server struct {
-	mem   *memory.Store
-	coord *coordination.Engine
+	mem    *memory.Store
+	coord  *coordination.Engine
+	router *routing.Router
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
-func New(mem *memory.Store, coord *coordination.Engine) *Server {
-	return &Server{mem: mem, coord: coord}
+func New(mem *memory.Store, coord *coordination.Engine, router *routing.Router) *Server {
+	return &Server{mem: mem, coord: coord, router: router}
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -186,14 +188,14 @@ func (s *Server) handleToolCall(req Request) Response {
 			Budget          string `json:"budget"`
 		}
 		json.Unmarshal(params.Arguments, &args)
-		// Placeholder — will use swarm history + telemetry for real routing
-		model := "claude-opus-4"
-		reason := "Complex task — tier A agent"
-		if args.Budget == "low" {
-			model = "copilot"
-			reason = "Low budget — tier C agent"
-		}
-		return textResult(req.ID, fmt.Sprintf("Recommended: %s — %s", model, reason))
+		dec := s.router.Recommend(args.TaskDescription, args.Budget)
+		data, _ := json.Marshal(dec)
+		return textResult(req.ID, string(data))
+
+	case "health_report":
+		report := s.router.HealthReport()
+		data, _ := json.Marshal(report)
+		return textResult(req.ID, string(data))
 
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
@@ -271,14 +273,22 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "route_recommend",
-			Description: "Get the recommended model for a task based on cost, capability, and swarm history.",
+			Description: "Get the recommended driver for a task based on cost tier and driver health. Returns cheapest healthy driver with fallback options.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"taskDescription": map[string]string{"type": "string", "description": "Describe the task"},
-					"budget":          map[string]interface{}{"type": "string", "enum": []string{"low", "medium", "high"}, "description": "Budget tier"},
+					"budget":          map[string]interface{}{"type": "string", "enum": []string{"low", "medium", "high"}, "description": "Budget tier — low (local only), medium (local+subscription+cli), high (all)"},
 				},
 				"required": []string{"taskDescription"},
+			},
+		},
+		{
+			Name:        "health_report",
+			Description: "Get current health status of all drivers in the swarm — circuit breaker state, failure counts, last success/failure timestamps.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 	}
