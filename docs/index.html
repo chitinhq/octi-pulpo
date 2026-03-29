@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Octi Pulpo — Swarm Coordination for Agent Fleets</title>
+  <meta name="description" content="Eight arms, one brain. Open-source swarm coordination layer for autonomous AI agent fleets. Go, Redis, MCP.">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --border: #1e1e2e;
+      --text: #e0e0e8;
+      --muted: #8888a0;
+      --accent: #6c5ce7;
+      --accent-glow: rgba(108, 92, 231, 0.2);
+      --teal: #00b894;
+      --orange: #e17055;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 6rem 2rem 4rem;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .hero-icon { font-size: 5rem; margin-bottom: 1.5rem; }
+    .hero h1 {
+      font-size: 3rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+    }
+    .hero .tagline {
+      font-size: 1.25rem;
+      color: var(--muted);
+      margin-bottom: 2rem;
+    }
+    .hero .desc {
+      font-size: 1.1rem;
+      color: var(--muted);
+      max-width: 540px;
+      margin: 0 auto 2.5rem;
+    }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border: 1px solid var(--accent);
+    }
+    .btn-primary:hover { box-shadow: 0 0 20px var(--accent-glow); }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--muted); }
+
+    /* Install block */
+    .install {
+      text-align: center;
+      padding: 2rem 2rem 4rem;
+    }
+    .install pre {
+      display: inline-block;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 2rem;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.95rem;
+      color: var(--teal);
+    }
+
+    /* Arms grid */
+    .arms {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 4rem 2rem;
+    }
+    .arms h2 {
+      text-align: center;
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+    .arms .subtitle {
+      text-align: center;
+      color: var(--muted);
+      margin-bottom: 3rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: var(--accent); }
+    .card-icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .card h3 { font-size: 1rem; margin-bottom: 0.25rem; }
+    .card p { font-size: 0.85rem; color: var(--muted); }
+
+    /* Architecture */
+    .arch {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 4rem 2rem;
+      text-align: center;
+    }
+    .arch h2 { font-size: 2rem; margin-bottom: 2rem; }
+    .arch pre {
+      display: inline-block;
+      text-align: left;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 2rem;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.85rem;
+      line-height: 1.8;
+      color: var(--muted);
+    }
+    .arch pre strong { color: var(--text); }
+
+    /* Ecosystem */
+    .ecosystem {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 4rem 2rem;
+      text-align: center;
+    }
+    .ecosystem h2 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .ecosystem .subtitle { color: var(--muted); margin-bottom: 2rem; }
+    .eco-row {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .eco-card {
+      flex: 1;
+      min-width: 180px;
+      max-width: 220px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem 1rem;
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color 0.2s;
+    }
+    .eco-card:hover { border-color: var(--accent); }
+    .eco-card .eco-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .eco-card h3 { font-size: 1rem; margin-bottom: 0.25rem; }
+    .eco-card p { font-size: 0.8rem; color: var(--muted); }
+    .eco-card.active { border-color: var(--accent); box-shadow: 0 0 16px var(--accent-glow); }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <section class="hero">
+    <div class="hero-icon">🐙</div>
+    <h1>Octi Pulpo</h1>
+    <p class="tagline">Eight arms. One brain.</p>
+    <p class="desc">
+      Open-source swarm coordination layer for autonomous AI agent fleets.
+      Shared memory, model routing, budget-aware dispatch, and priority signaling —
+      all through standard MCP tools.
+    </p>
+    <div class="btn-row">
+      <a href="https://github.com/AgentGuardHQ/octi-pulpo" class="btn btn-primary">GitHub</a>
+      <a href="https://github.com/AgentGuardHQ/octi-pulpo#quick-start" class="btn btn-secondary">Get Started</a>
+    </div>
+  </section>
+
+  <section class="install">
+    <pre>go install github.com/AgentGuardHQ/octi-pulpo/cmd/octi-pulpo@latest</pre>
+  </section>
+
+  <section class="arms">
+    <h2>The Eight Arms</h2>
+    <p class="subtitle">Everything your agents need to work as a fleet.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="card-icon">🧭</div>
+        <h3>Model Routing</h3>
+        <p>Route tasks to optimal models by cost, capability, and governance tier.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧠</div>
+        <h3>Shared Memory</h3>
+        <p>Vector DB for accumulated knowledge. Redis for hot state. Every agent learns from every run.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🤝</div>
+        <h3>Agent Coordination</h3>
+        <p>Who's working on what. Assignment dedup, handoffs, claims with auto-expiring TTLs.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔄</div>
+        <h3>Feedback Loops</h3>
+        <p>Report up (agent to EM to director), get direction down. Structured decision chains.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔗</div>
+        <h3>Dependency Resolution</h3>
+        <p>Agent A needs agent B's output. Wait, notify, unblock — automatic.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📚</div>
+        <h3>Learning Aggregation</h3>
+        <p>Collective knowledge across runs. Denial patterns, workarounds, solutions — all shared.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">💓</div>
+        <h3>Health Broadcasting</h3>
+        <p>Heartbeats, blocks, completions. Real-time swarm awareness across every agent.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📡</div>
+        <h3>Priority Signaling</h3>
+        <p>Push a directive, every agent sees it immediately. Sprint goals, freeze windows, hot fixes.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="arch">
+    <h2>Architecture</h2>
+    <pre>
+<strong>Agent Swarm</strong>
+Claude Code · Codex · Copilot · Gemini
+    │ MCP (stdio JSON-RPC)
+<strong>Octi Pulpo</strong>
+Coordination · Memory · Routing · Signals
+    │
+Redis (hot state)  +  Vector DB (cold knowledge)
+    │
+<strong>AgentGuard Kernel</strong> (optional)
+Policy · Telemetry · Invariants</pre>
+  </section>
+
+  <section class="ecosystem">
+    <h2>Governed Swarm Platform</h2>
+    <p class="subtitle">Three layers. One platform.</p>
+    <div class="eco-row">
+      <a href="https://github.com/AgentGuardHQ/shellforge" class="eco-card">
+        <div class="eco-icon">🔥</div>
+        <h3>ShellForge</h3>
+        <p>Orchestration — forge and run agent swarms</p>
+      </a>
+      <a href="https://github.com/AgentGuardHQ/octi-pulpo" class="eco-card active">
+        <div class="eco-icon">🐙</div>
+        <h3>Octi Pulpo</h3>
+        <p>Coordination — make agents work together</p>
+      </a>
+      <a href="https://github.com/AgentGuardHQ/agentguard" class="eco-card">
+        <div class="eco-icon">🛡️</div>
+        <h3>AgentGuard</h3>
+        <p>Governance — policy, telemetry, invariants</p>
+      </a>
+    </div>
+  </section>
+
+  <footer>
+    <p>Apache 2.0 &middot; Built by <a href="https://github.com/AgentGuardHQ">AgentGuardHQ</a></p>
+  </footer>
+
+</body>
+</html>

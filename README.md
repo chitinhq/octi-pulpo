@@ -8,63 +8,44 @@
 Swarm coordination layer for autonomous agent fleets.</p>
 
 <p align="center">
-  <a href="https://github.com/jpleva91/octi-pulpo"><img src="https://img.shields.io/badge/Status-Alpha-orange" alt="Alpha"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="https://github.com/AgentGuardHQ/octi-pulpo"><img src="https://img.shields.io/badge/Status-Alpha-orange" alt="Alpha"></a>
+  <a href="https://github.com/AgentGuardHQ/octi-pulpo/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="https://pkg.go.dev/github.com/AgentGuardHQ/octi-pulpo"><img src="https://img.shields.io/badge/Go-1.18+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
 </p>
 
 ---
 
-Octi Pulpo is the **shared cognitive layer** for agent swarms. It sits between your agents and provides coordination, shared memory, model routing, and feedback loops. Every agent reads from and writes to the collective intelligence via MCP tools.
+Running multiple AI agents? They step on each other. Duplicate work. Miss handoffs. Waste budget on the wrong model.
+
+**Octi Pulpo** is the coordination brain that sits between your agents and makes them work as a fleet. Every agent connects via MCP — no per-agent changes needed. One binary, sub-millisecond tool responses, zero runtime dependencies beyond Redis.
 
 ## The Eight Arms
 
 | Arm | Capability | What it does |
 |-----|-----------|--------------|
-| 1 | **Model routing** | Route tasks to optimal model by cost, capability, and governance tier |
-| 2 | **Shared memory** | Vector DB for accumulated knowledge + Redis for hot state |
-| 3 | **Agent coordination** | Who's working on what — assignment dedup, handoffs, claims |
-| 4 | **Feedback loop** | Report up (agent to EM to director), get direction down |
-| 5 | **Dependency resolution** | Agent A needs agent B's output — wait, notify, unblock |
-| 6 | **Learning aggregation** | Collective knowledge across runs — denial patterns, workarounds, solutions |
-| 7 | **Health broadcasting** | Heartbeats, blocks, completions — real-time swarm awareness |
-| 8 | **Priority signaling** | Push a directive, every agent sees it immediately |
-
-## Architecture
-
-```
-Agent Swarm (Claude Code, Codex, Copilot, Gemini, Goose)
-    ↕ MCP tools
-Octi Pulpo (coordination brain)
-    ↕ Redis (hot state) + Vector DB (cold knowledge)
-    ↓ task context
-AgentGuard Kernel (governance)  — optional, independent
-    ↓ governed execution
-LLM Providers
-```
-
-## MCP Tools
-
-Agents interact with Octi Pulpo through standard MCP tools — no per-agent changes needed:
-
-```
-memory_store     — save a learning, tagged with agent identity + topic
-memory_recall    — semantic search across swarm knowledge
-memory_status    — what are other agents working on right now?
-memory_lessons   — what has the swarm learned about [topic]?
-coord_claim      — claim a task (prevents duplicate work)
-coord_wait       — wait for another agent's output
-coord_signal     — broadcast completion / block / need-help
-route_recommend  — get optimal model for a task type
-```
+| 🧭 | **Model routing** | Route tasks to optimal model by cost, capability, and governance tier |
+| 🧠 | **Shared memory** | Vector DB for accumulated knowledge + Redis for hot state |
+| 🤝 | **Agent coordination** | Who's working on what — assignment dedup, handoffs, claims |
+| 🔄 | **Feedback loops** | Report up (agent → EM → director), get direction down |
+| 🔗 | **Dependency resolution** | Agent A needs agent B's output — wait, notify, unblock |
+| 📚 | **Learning aggregation** | Collective knowledge across runs — denial patterns, workarounds, solutions |
+| 💓 | **Health broadcasting** | Heartbeats, blocks, completions — real-time swarm awareness |
+| 📡 | **Priority signaling** | Push a directive, every agent sees it immediately |
 
 ## Quick Start
 
 ```bash
+# Build from source
+git clone https://github.com/AgentGuardHQ/octi-pulpo.git
+cd octi-pulpo
 go build -o octi-pulpo ./cmd/octi-pulpo/
+
+# Run (requires Redis)
 OCTI_REDIS_URL=redis://localhost:6379 ./octi-pulpo
 ```
 
-Or run via MCP config in your agent's settings:
+Add to any agent via MCP config:
+
 ```json
 {
   "mcpServers": {
@@ -76,18 +57,82 @@ Or run via MCP config in your agent's settings:
 }
 ```
 
+That's it. Your agent now has access to the full coordination toolkit.
+
+## MCP Tools
+
+Agents interact through standard MCP tools:
+
+| Tool | Purpose |
+|------|---------|
+| `memory_store` | Save a learning, tagged with agent identity + topic |
+| `memory_recall` | Semantic search across swarm knowledge |
+| `memory_status` | What are other agents working on right now? |
+| `coord_claim` | Claim a task (prevents duplicate work) |
+| `coord_signal` | Broadcast completion / block / need-help |
+| `coord_wait` | Wait for another agent's output |
+| `route_recommend` | Get optimal model for a task type + budget |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│  Agent Swarm                                │
+│  Claude Code · Codex · Copilot · Gemini     │
+└────────────────┬────────────────────────────┘
+                 │ MCP (stdio JSON-RPC)
+┌────────────────▼────────────────────────────┐
+│  Octi Pulpo                                 │
+│  Coordination · Memory · Routing · Signals  │
+└────────┬───────────────────┬────────────────┘
+         │                   │
+   Redis (hot state)   Vector DB (cold knowledge)
+         │
+┌────────▼────────────────────────────────────┐
+│  AgentGuard Kernel (optional)               │
+│  Policy enforcement · Telemetry · Invariants│
+└─────────────────────────────────────────────┘
+```
+
+Octi Pulpo is **independent** — it works with any agent swarm, with or without governance. When paired with [AgentGuard](https://github.com/AgentGuardHQ/agentguard), it gains governance-aware routing and denial pattern learning.
+
+## Part of the Governed Swarm Platform
+
+| Layer | Role | Repo |
+|-------|------|------|
+| [ShellForge](https://github.com/AgentGuardHQ/shellforge) | Orchestration — forge and run agent swarms | `shellforge` |
+| **Octi Pulpo** | **Coordination — make agents work together** | `octi-pulpo` |
+| [AgentGuard](https://github.com/AgentGuardHQ/agentguard) | Governance — policy, telemetry, invariants | `agentguard` |
+
+ShellForge orchestrates. Octi Pulpo coordinates. AgentGuard governs.
+
 ## Stack
 
 - **Go** — Single binary, sub-ms tool responses, zero dependencies
-- **Redis** — Hot state: assignments, locks, heartbeats, cycle coordination, pub/sub signals
-- **Dagu** — Workflow orchestration for multi-agent dependency chains (Arm 5)
+- **Redis** — Hot state: claims, locks, heartbeats, pub/sub signals
 - **Vector DB** (Qdrant) — Cold knowledge: learnings, patterns, cross-cycle memory
-- **MCP Server** — Stdio JSON-RPC interface for all agent runtimes
+- **MCP** — Stdio JSON-RPC 2.0 interface, works with any MCP-compatible agent
 
-## Relationship to AgentGuard
+## Configuration
 
-Octi Pulpo is **independent** — it works with any agent swarm, with or without AgentGuard governance. When paired with AgentGuard, it gains governance-aware routing (model selection respects trust tiers) and denial pattern learning (invariant violations feed the knowledge base automatically).
+| Env Variable | Default | Description |
+|-------------|---------|-------------|
+| `OCTI_REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
+| `OCTI_NAMESPACE` | `octi` | Key prefix for multi-tenant isolation |
+| `AGENTGUARD_AGENT_NAME` | (auto-detected) | Calling agent identity |
+
+## Roadmap
+
+- [x] MCP server with stdio transport
+- [x] Redis-backed coordination (claims, signals)
+- [x] Shared memory store
+- [ ] Budget-aware dispatch (priority queue + adaptive backoff)
+- [ ] Vector search for memory recall (Qdrant integration)
+- [ ] Model routing with cost/capability scoring
+- [ ] Dependency resolution (Dagu workflow chains)
+- [ ] Health broadcasting with circuit breaker integration
+- [ ] Multi-box coordination protocol
 
 ## License
 
-[Apache 2.0](LICENSE)
+[Apache 2.0](LICENSE) — Use it, fork it, ship it.
