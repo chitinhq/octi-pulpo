@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
@@ -13,6 +14,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/redis/go-redis/v9"
 )
 
 // ToolDef describes an MCP tool for the ListTools response.
@@ -52,6 +54,8 @@ type Server struct {
 	dispatcher  *dispatch.Dispatcher
 	sprintStore *sprint.Store
 	benchmark   *dispatch.BenchmarkTracker
+	rdb         *redis.Client
+	redisNS     string
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -72,6 +76,13 @@ func (s *Server) SetSprintStore(ss *sprint.Store) {
 // SetBenchmark enables throughput metrics MCP tools.
 func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
 	s.benchmark = bt
+}
+
+// SetRedis enables Redis-backed enrichment for the health_report tool
+// (budget percentages written by octi-worker after each agent run).
+func (s *Server) SetRedis(rdb *redis.Client, ns string) {
+	s.rdb = rdb
+	s.redisNS = ns
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -236,7 +247,7 @@ func (s *Server) handleToolCall(req Request) Response {
 		return textResult(req.ID, string(data))
 
 	case "health_report":
-		report := s.router.HealthReport()
+		report := s.enrichHealthReport(ctx, s.router.HealthReport())
 		data, _ := json.Marshal(report)
 		return textResult(req.ID, string(data))
 
@@ -355,6 +366,27 @@ func (s *Server) handleToolCall(req Request) Response {
 	}
 }
 
+// enrichHealthReport adds Redis-backed budget data and recommended actions to a
+// raw HealthReport. Drivers without Redis budget data get nil BudgetPct so the
+// client can distinguish "unknown" from "0%".
+func (s *Server) enrichHealthReport(ctx context.Context, drivers []routing.DriverHealth) []routing.DriverHealth {
+	for i, h := range drivers {
+		if s.rdb != nil {
+			budgetKey := s.redisNS + ":driver-budget:" + h.Name
+			vals, err := s.rdb.HGetAll(ctx, budgetKey).Result()
+			if err == nil && len(vals) > 0 {
+				if pctStr, ok := vals["pct"]; ok {
+					if pct, err := strconv.Atoi(pctStr); err == nil {
+						drivers[i].BudgetPct = &pct
+					}
+				}
+			}
+		}
+		drivers[i].RecommendedAction = routing.RecommendAction(drivers[i])
+	}
+	return drivers
+}
+
 func textResult(id interface{}, text string) Response {
 	return Response{
 		JSONRPC: "2.0",
@@ -441,7 +473,7 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "health_report",
-			Description: "Get current health status of all drivers in the swarm — circuit breaker state, failure counts, last success/failure timestamps.",
+			Description: "Get current health status of all drivers — circuit breaker state, failure counts, last success/failure timestamps, estimated budget %, and recommended actions.",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},

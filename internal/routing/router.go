@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // CostTier represents the cost category of a driver.
@@ -59,6 +60,18 @@ type DriverHealth struct {
 	Failures     int    `json:"failures"`
 	LastFailure  string `json:"last_failure"`
 	LastSuccess  string `json:"last_success"`
+
+	// Enriched fields — populated by ReadDriverHealth from on-disk data.
+	OpenedAt       string `json:"opened_at,omitempty"`
+	LastSuccessAgo string `json:"last_success_ago,omitempty"`
+
+	// BudgetPct is the estimated remaining budget percentage (0-100).
+	// nil means unknown. Populated from Redis by the MCP health_report handler.
+	BudgetPct *int `json:"budget_pct,omitempty"`
+
+	// RecommendedAction is a human-readable suggested action for this driver.
+	// Populated by RecommendAction(); nil fields in this struct are OK inputs.
+	RecommendedAction string `json:"recommended_action,omitempty"`
 }
 
 // RouteDecision is the output of the routing engine.
@@ -176,6 +189,51 @@ func (r *Router) Recommend(taskType, budget string) RouteDecision {
 // HealthReport returns current health status for all discovered drivers.
 func (r *Router) HealthReport() []DriverHealth {
 	return ReadAllHealth(r.healthDir)
+}
+
+// HealthDir returns the directory where driver health JSON files are stored.
+func (r *Router) HealthDir() string {
+	return r.healthDir
+}
+
+// RecommendAction returns a human-readable suggested action for a driver based
+// on its circuit state, age, and optional budget percentage.
+func RecommendAction(h DriverHealth) string {
+	budgetLow := h.BudgetPct != nil && *h.BudgetPct < 15
+
+	switch h.CircuitState {
+	case "OPEN":
+		age := openedAge(h.OpenedAt)
+		switch {
+		case budgetLow:
+			return "driver exhausted — needs budget reset before recovery"
+		case age > 60*time.Minute:
+			return "circuit open >1h — manual intervention may be needed"
+		case age > 30*time.Minute:
+			return "circuit open >30min — half-open probe expected soon"
+		default:
+			return "circuit open — waiting for automatic recovery"
+		}
+	case "HALF":
+		return "half-open — probing, allow one request"
+	default: // CLOSED
+		if budgetLow {
+			return "healthy but budget low — monitor closely"
+		}
+		return "healthy"
+	}
+}
+
+// openedAge returns the time elapsed since a driver's circuit was opened.
+func openedAge(openedAt string) time.Duration {
+	if openedAt == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, openedAt)
+	if err != nil {
+		return 0
+	}
+	return time.Since(t)
 }
 
 // taskMinTier returns the minimum cost tier capable of handling the task type.

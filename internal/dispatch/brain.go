@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
@@ -36,14 +37,16 @@ type LeverageAction struct {
 //   - Queue health: alert on growing queue depth
 //   - Constraint analysis: identify the ONE bottleneck and focus on it
 //   - Sprint store sync: periodically refresh issue data from GitHub
+//   - Driver health probe: log stale-OPEN drivers every 15 min
 type Brain struct {
-	dispatcher   *Dispatcher
-	chains       ChainConfig
-	tickInterval time.Duration
-	log          *log.Logger
-	sprintStore  *sprint.Store
-	profiles     *ProfileStore
-	lastSync     time.Time
+	dispatcher    *Dispatcher
+	chains        ChainConfig
+	tickInterval  time.Duration
+	log           *log.Logger
+	sprintStore   *sprint.Store
+	profiles      *ProfileStore
+	lastSync      time.Time
+	lastProbeAt   time.Time
 }
 
 // NewBrain creates a dispatch brain.
@@ -97,7 +100,10 @@ func (b *Brain) Tick(ctx context.Context) {
 	b.checkQueueHealth(ctx)
 	b.checkStalledDispatches(ctx)
 
-	// 3. Constraint-driven dispatch (if sprint store is available)
+	// 3. Periodic driver health probe (every 15 min)
+	b.maybeProbeDriverHealth()
+
+	// 4. Constraint-driven dispatch (if sprint store is available)
 	if b.sprintStore != nil {
 		constraint := b.identifyConstraint(ctx)
 		if constraint.Type != "none" && constraint.Type != "all_drivers_down" {
@@ -383,6 +389,67 @@ func (b *Brain) srForSquad(squad string) string {
 		"analytics":  "analytics-sr",
 	}
 	return mapping[squad]
+}
+
+// maybeProbeDriverHealth logs the current state of all driver circuits every 15
+// minutes. When a driver has been OPEN for more than 30 minutes with no recent
+// activity, the brain recommends action — giving human operators or the bash
+// driver-health scripts visibility into stale circuits. We deliberately do not
+// exec driver CLIs here; that is the responsibility of run-agent.sh and
+// driver-health.sh which understand each driver's specific probe command.
+func (b *Brain) maybeProbeDriverHealth() {
+	if time.Since(b.lastProbeAt) < 15*time.Minute {
+		return
+	}
+	b.lastProbeAt = time.Now()
+
+	healthDir := b.dispatcher.router.HealthDir()
+	drivers := routing.DiscoverDrivers(healthDir)
+	if len(drivers) == 0 {
+		return
+	}
+
+	var openDrivers []string
+	for _, driver := range drivers {
+		h := routing.ReadDriverHealth(healthDir, driver)
+		if h.CircuitState != "OPEN" {
+			continue
+		}
+		openDrivers = append(openDrivers, driver)
+		age := openedAge(h.OpenedAt)
+		action := routing.RecommendAction(h)
+		b.log.Printf("driver probe: %s OPEN (age=%s) — %s", driver, formatDuration(age), action)
+	}
+
+	if len(openDrivers) == 0 {
+		b.log.Printf("driver probe: all %d drivers healthy", len(drivers))
+	} else {
+		b.log.Printf("driver probe: %d/%d drivers OPEN: %v", len(openDrivers), len(drivers), openDrivers)
+	}
+}
+
+// openedAge returns the time elapsed since a driver's circuit was opened.
+func openedAge(openedAt string) time.Duration {
+	if openedAt == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, openedAt)
+	if err != nil {
+		return 0
+	}
+	return time.Since(t)
+}
+
+// formatDuration formats a duration as a compact human string.
+func formatDuration(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+	}
 }
 
 // checkBackpressureRecovery looks for agents that were queued due to
