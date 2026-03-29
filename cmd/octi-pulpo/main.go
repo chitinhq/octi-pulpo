@@ -83,11 +83,14 @@ func main() {
 	// Set up benchmark tracker
 	benchmark := dispatch.NewBenchmarkTracker(rdb, namespace)
 
+	requestStore := coordination.NewRequestStore(rdb, namespace)
+
 	server := mcp.New(mem, coord, router)
 	server.SetDispatcher(dispatcher)
 	server.SetSprintStore(sprintStore)
 	server.SetBenchmark(benchmark)
 	server.SetProfileStore(profiles)
+	server.SetRequestStore(requestStore)
 
 	// Optional HTTP mode: run webhook server alongside MCP
 	httpPort := os.Getenv("OCTI_HTTP_PORT")

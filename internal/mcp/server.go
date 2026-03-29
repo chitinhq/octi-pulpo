@@ -52,8 +52,9 @@ type Server struct {
 	router      *routing.Router
 	dispatcher  *dispatch.Dispatcher
 	sprintStore *sprint.Store
-	benchmark   *dispatch.BenchmarkTracker
-	profiles    *dispatch.ProfileStore
+	benchmark    *dispatch.BenchmarkTracker
+	profiles     *dispatch.ProfileStore
+	requestStore *coordination.RequestStore
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -79,6 +80,11 @@ func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
 // SetProfileStore enables the agent leaderboard MCP tool.
 func (s *Server) SetProfileStore(ps *dispatch.ProfileStore) {
 	s.profiles = ps
+}
+
+// SetRequestStore enables cross-squad request routing MCP tools.
+func (s *Server) SetRequestStore(rs *coordination.RequestStore) {
+	s.requestStore = rs
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -368,6 +374,86 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, dispatch.FormatLeaderboard(entries))
 
+	case "request_work":
+		if s.requestStore == nil {
+			return errorResp(req.ID, -32000, "request store not initialized")
+		}
+		var args struct {
+			ToSquad         string `json:"toSquad"`
+			Type            string `json:"type"`
+			Description     string `json:"description"`
+			Priority        int    `json:"priority"`
+			DeadlineMinutes int    `json:"deadlineMinutes"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.ToSquad == "" || args.Description == "" {
+			return errorResp(req.ID, -32602, "toSquad and description are required")
+		}
+		reqType := coordination.RequestType(args.Type)
+		if reqType == "" {
+			reqType = coordination.RequestReport
+		}
+		r, err := s.requestStore.Submit(ctx, agentID, args.ToSquad, reqType, args.Description, args.Priority, args.DeadlineMinutes)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		data, _ := json.Marshal(r)
+		return textResult(req.ID, string(data))
+
+	case "check_requests":
+		if s.requestStore == nil {
+			return errorResp(req.ID, -32000, "request store not initialized")
+		}
+		var args struct {
+			Squad string `json:"squad"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Squad == "" {
+			return errorResp(req.ID, -32602, "squad is required")
+		}
+		requests, err := s.requestStore.Pending(ctx, args.Squad)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if len(requests) == 0 {
+			return textResult(req.ID, fmt.Sprintf("No pending requests for squad %q.", args.Squad))
+		}
+		var lines []string
+		for _, r := range requests {
+			age := r.AgeMinutes()
+			overdue := ""
+			if r.IsOverdue() {
+				overdue = " [OVERDUE]"
+			}
+			lines = append(lines, fmt.Sprintf("[%s] %s from %s — %s (priority: %d, age: %.0fm%s)", r.ID, r.Type, r.FromAgent, r.Description, r.Priority, age, overdue))
+		}
+		return textResult(req.ID, strings.Join(lines, "\n"))
+
+	case "fulfill_request":
+		if s.requestStore == nil {
+			return errorResp(req.ID, -32000, "request store not initialized")
+		}
+		var args struct {
+			RequestID string `json:"requestId"`
+			Result    string `json:"result"`
+			PRNumber  int    `json:"prNumber"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.RequestID == "" || args.Result == "" {
+			return errorResp(req.ID, -32602, "requestId and result are required")
+		}
+		r, err := s.requestStore.Fulfill(ctx, args.RequestID, args.Result, args.PRNumber)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		msg := fmt.Sprintf("Request %s fulfilled by %s. Result: %s", r.ID, agentID, r.Result)
+		if r.PRNumber > 0 {
+			msg += fmt.Sprintf(" (PR #%d)", r.PRNumber)
+		}
+		// Notify the requesting agent via coord signal
+		_ = s.coord.Broadcast(ctx, agentID, "request.fulfilled", fmt.Sprintf("%s:%s", r.ID, r.Result))
+		return textResult(req.ID, msg)
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -578,6 +664,45 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "request_work",
+			Description: "Request work from another squad. Use when you need a report, query, review, fix, or deployment from a different squad. The request is queued and the target squad's SR will be notified on their next check_requests poll.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"toSquad":         map[string]string{"type": "string", "description": "Target squad (e.g. 'analytics', 'cloud', 'kernel')"},
+					"type":            map[string]interface{}{"type": "string", "enum": []string{"report", "query", "review", "fix", "deploy"}, "description": "Type of work requested"},
+					"description":     map[string]string{"type": "string", "description": "What you need — be specific"},
+					"priority":        map[string]interface{}{"type": "number", "description": "0=urgent, 1=high, 2=normal (default 2)"},
+					"deadlineMinutes": map[string]interface{}{"type": "number", "description": "Minutes until escalation (0 = no deadline)"},
+				},
+				"required": []string{"toSquad", "description"},
+			},
+		},
+		{
+			Name:        "check_requests",
+			Description: "Check for incoming cross-squad work requests directed at your squad. Returns pending and claimed requests ordered by priority.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad": map[string]string{"type": "string", "description": "Your squad name (e.g. 'analytics', 'cloud')"},
+				},
+				"required": []string{"squad"},
+			},
+		},
+		{
+			Name:        "fulfill_request",
+			Description: "Mark a cross-squad request as fulfilled. Notifies the requesting agent via coord_signal and removes the request from the pending queue.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"requestId": map[string]string{"type": "string", "description": "The request ID from check_requests (e.g. 'req-analytics-1234567890')"},
+					"result":    map[string]string{"type": "string", "description": "Summary of what was done — file path, link, or description"},
+					"prNumber":  map[string]interface{}{"type": "number", "description": "PR number if work produced a pull request (optional)"},
+				},
+				"required": []string{"requestId", "result"},
 			},
 		},
 	}
