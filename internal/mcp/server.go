@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/redis/go-redis/v9"
 )
 
 // ToolDef describes an MCP tool for the ListTools response.
@@ -54,6 +56,8 @@ type Server struct {
 	sprintStore *sprint.Store
 	benchmark   *dispatch.BenchmarkTracker
 	profiles    *dispatch.ProfileStore
+	rdb         *redis.Client
+	redisNS     string
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -79,6 +83,13 @@ func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
 // SetProfileStore enables the agent leaderboard MCP tool.
 func (s *Server) SetProfileStore(ps *dispatch.ProfileStore) {
 	s.profiles = ps
+}
+
+// SetRedis enables Redis-backed budget enrichment for the health_report tool.
+// Budget percentages are written by octi-worker after each agent run.
+func (s *Server) SetRedis(rdb *redis.Client, ns string) {
+	s.rdb = rdb
+	s.redisNS = ns
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -243,9 +254,8 @@ func (s *Server) handleToolCall(req Request) Response {
 		return textResult(req.ID, string(data))
 
 	case "health_report":
-		report := s.router.HealthReport()
-		enriched := enrichHealthReport(report)
-		data, _ := json.Marshal(enriched)
+		report := s.enrichHealthReport(ctx, s.router.HealthReport())
+		data, _ := json.Marshal(report)
 		return textResult(req.ID, string(data))
 
 	case "dispatch_event":
@@ -419,6 +429,27 @@ func enrichHealthReport(drivers []routing.DriverHealth) []EnrichedHealthEntry {
 		entries = append(entries, e)
 	}
 	return entries
+}
+
+// enrichHealthReport adds Redis-backed budget data and recommended actions to a
+// raw HealthReport. Drivers without Redis budget data get nil BudgetPct so the
+// client can distinguish "unknown" from "0%".
+func (s *Server) enrichHealthReport(ctx context.Context, drivers []routing.DriverHealth) []routing.DriverHealth {
+	for i, h := range drivers {
+		if s.rdb != nil {
+			budgetKey := s.redisNS + ":driver-budget:" + h.Name
+			vals, err := s.rdb.HGetAll(ctx, budgetKey).Result()
+			if err == nil && len(vals) > 0 {
+				if pctStr, ok := vals["pct"]; ok {
+					if pct, err := strconv.Atoi(pctStr); err == nil {
+						drivers[i].BudgetPct = &pct
+					}
+				}
+			}
+		}
+		drivers[i].RecommendedAction = routing.RecommendAction(drivers[i])
+	}
+	return drivers
 }
 
 func textResult(id interface{}, text string) Response {
