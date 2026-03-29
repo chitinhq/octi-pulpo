@@ -246,3 +246,151 @@ func TestDiscoverDrivers_NonexistentDir(t *testing.T) {
 		t.Fatalf("expected nil for nonexistent dir, got %v", drivers)
 	}
 }
+
+// --- Full 4-tier cascade tests ---
+
+func TestRecommend_APITierDriver(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "anthropic-api", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any-task", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	if dec.Driver != "anthropic-api" {
+		t.Fatalf("expected anthropic-api, got %s", dec.Driver)
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected tier api, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_FullCascade_CLIToAPI(t *testing.T) {
+	dir := t.TempDir()
+	// All CLI drivers OPEN — should cascade to API tier.
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "copilot", HealthFile{State: "OPEN", Failures: 3})
+	writeHealth(t, dir, "openai-api", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any-task", "high")
+
+	if dec.Skip {
+		t.Fatal("expected fallback to API tier, got Skip")
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected API tier after CLI exhaustion, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_FullCascade_AllExhausted(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "ollama", HealthFile{State: "OPEN"})
+	writeHealth(t, dir, "openclaw", HealthFile{State: "OPEN"})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN"})
+	writeHealth(t, dir, "anthropic-api", HealthFile{State: "OPEN"})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any-task", "high")
+
+	if !dec.Skip {
+		t.Fatalf("expected Skip when all 4 tiers exhausted, got driver=%s", dec.Driver)
+	}
+}
+
+// --- Task-type affinity tests ---
+
+func TestRecommend_TaskTypeCode_SkipsLocal(t *testing.T) {
+	dir := t.TempDir()
+	// Both local and CLI drivers are healthy — code-review should skip ollama.
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("code-review", "high")
+
+	if dec.Skip {
+		t.Fatal("expected CLI recommendation, got Skip")
+	}
+	if dec.Tier != string(TierCLI) {
+		t.Fatalf("code-review should use CLI tier, got %s", dec.Tier)
+	}
+	// ollama must not appear as fallback — it's below min tier for coding tasks
+	for _, fb := range dec.Fallbacks {
+		if fb == "ollama" {
+			t.Fatal("ollama should not be a fallback for code-review (below min tier)")
+		}
+	}
+}
+
+func TestRecommend_TaskTypeBriefing_SkipsLocal(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "openclaw", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("briefing", "high")
+
+	if dec.Skip {
+		t.Fatal("expected subscription recommendation, got Skip")
+	}
+	if dec.Tier != string(TierSubscription) {
+		t.Fatalf("briefing should use subscription tier, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_TaskTypeBurst_UsesAPI(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "gemini-api", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("burst", "high")
+
+	if dec.Skip {
+		t.Fatal("expected API recommendation, got Skip")
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("burst task should use API tier, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_TaskTypeCode_BudgetTooLow(t *testing.T) {
+	dir := t.TempDir()
+	// code-review needs CLI (min tier), but budget is "low" (max tier = local).
+	// Min > max → no eligible tiers → Skip.
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("code-review", "low")
+
+	if !dec.Skip {
+		t.Fatalf("expected Skip when task min tier exceeds budget, got driver=%s tier=%s", dec.Driver, dec.Tier)
+	}
+}
+
+func TestRecommend_TaskTypeCoding_CLIExhausted_FallsToAPI(t *testing.T) {
+	dir := t.TempDir()
+	// CLI exhausted — coding task should cascade to API, not fall to local.
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "anthropic-api", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("coding", "high")
+
+	if dec.Skip {
+		t.Fatal("expected API fallback, got Skip")
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("coding task with CLI exhausted should fall to API, got tier=%s", dec.Tier)
+	}
+	// ollama must not be chosen — below min tier for coding
+	if dec.Driver == "ollama" {
+		t.Fatal("ollama must not be chosen for coding task (below min tier)")
+	}
+}
