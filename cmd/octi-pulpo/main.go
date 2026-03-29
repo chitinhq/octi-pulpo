@@ -60,8 +60,21 @@ func main() {
 	eventRouter := dispatch.NewEventRouter(dispatch.DefaultRules())
 	dispatcher := dispatch.NewDispatcher(rdb, router, coord, eventRouter, queueFile, namespace)
 
-	// Set up adaptive cooldown profiles
+	// Set up adaptive cooldown profiles with live driver-health signal.
 	profiles := dispatch.NewProfileStore(rdb, namespace, eventRouter.CooldownFor)
+	profiles.SetBudgetHealthFn(func() float64 {
+		health := router.HealthReport()
+		if len(health) == 0 {
+			return 1.0 // no drivers discovered — assume healthy
+		}
+		var closed int
+		for _, h := range health {
+			if h.CircuitState != "OPEN" {
+				closed++
+			}
+		}
+		return float64(closed) / float64(len(health))
+	})
 	dispatcher.SetProfiles(profiles)
 
 	// Set up sprint store
