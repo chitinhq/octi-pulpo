@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -244,5 +245,179 @@ func TestDiscoverDrivers_NonexistentDir(t *testing.T) {
 	drivers := DiscoverDrivers("/nonexistent/path/that/does/not/exist")
 	if drivers != nil {
 		t.Fatalf("expected nil for nonexistent dir, got %v", drivers)
+	}
+}
+
+// --- Issue #8: cost-tier cascade ---
+
+func TestRecommend_APITierFallback(t *testing.T) {
+	dir := t.TempDir()
+	// All CLI drivers OPEN — should cascade to API tier
+	writeHealth(t, dir, "claude-code", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "copilot", HealthFile{State: "OPEN", Failures: 5})
+	writeHealth(t, dir, "anthropic", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("burst", "high")
+
+	if dec.Skip {
+		t.Fatal("expected anthropic recommendation via API cascade, got Skip")
+	}
+	if dec.Driver != "anthropic" {
+		t.Fatalf("expected anthropic (API tier fallback), got %s", dec.Driver)
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected tier api, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_CascadeTrace_TiersSkipped(t *testing.T) {
+	dir := t.TempDir()
+	// Local OPEN, no subscription, CLI healthy
+	writeHealth(t, dir, "ollama", HealthFile{State: "OPEN", Failures: 3})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("code-review", "high")
+
+	if dec.Skip {
+		t.Fatal("expected claude-code recommendation, got Skip")
+	}
+	if dec.Driver != "claude-code" {
+		t.Fatalf("expected claude-code, got %s", dec.Driver)
+	}
+	if len(dec.CascadeTrace) == 0 {
+		t.Fatal("expected non-empty CascadeTrace")
+	}
+	// Should mention that local tier was skipped due to task minimum
+	found := false
+	for _, entry := range dec.CascadeTrace {
+		if strings.Contains(entry, "below task minimum") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("CascadeTrace should mention min-tier skip, got: %v", dec.CascadeTrace)
+	}
+}
+
+func TestRecommend_TaskTypeCodeReview_SkipsLocal(t *testing.T) {
+	dir := t.TempDir()
+	// Healthy local AND CLI
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("code-review", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	// code-review min tier = CLI — ollama must be skipped
+	if dec.Driver == "ollama" {
+		t.Fatal("ollama should be skipped for code-review (below min tier CLI)")
+	}
+	if dec.Tier != string(TierCLI) {
+		t.Fatalf("expected CLI tier for code-review, got %s", dec.Tier)
+	}
+	if dec.MinTier != string(TierCLI) {
+		t.Fatalf("expected MinTier=cli, got %q", dec.MinTier)
+	}
+}
+
+func TestRecommend_TaskTypeTriageUsesLocal(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("triage", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	// triage min tier = local — should pick ollama (cheapest)
+	if dec.Driver != "ollama" {
+		t.Fatalf("expected ollama for triage (local capable), got %s", dec.Driver)
+	}
+	if dec.MinTier != "" {
+		t.Fatalf("MinTier should be omitted for local min tier, got %q", dec.MinTier)
+	}
+}
+
+func TestRecommend_TaskTypePRSubstringMatch(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "ollama", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	// "open-pr-for-feature" contains "pr" → min tier CLI
+	dec := r.Recommend("open-pr-for-feature", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	if dec.Tier != string(TierCLI) {
+		t.Fatalf("expected CLI tier for pr-related task, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_APIDriversRecognised(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "anthropic", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "openai", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "gemini-api", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any", "high")
+
+	// All three are API-tier. With no cheaper drivers present, should pick one.
+	if dec.Skip {
+		t.Fatal("expected a recommendation from API-tier drivers, got Skip")
+	}
+	if dec.Tier != string(TierAPI) {
+		t.Fatalf("expected tier api, got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_NemoclawIsLocalTier(t *testing.T) {
+	dir := t.TempDir()
+	writeHealth(t, dir, "nemoclaw", HealthFile{State: "CLOSED", Failures: 0})
+	writeHealth(t, dir, "claude-code", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("triage", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	// nemoclaw is local tier — should be preferred over CLI
+	if dec.Tier != string(TierLocal) {
+		t.Fatalf("expected tier local (nemoclaw), got %s", dec.Tier)
+	}
+}
+
+func TestRecommend_BudgetCeilingBlocksMinTier(t *testing.T) {
+	dir := t.TempDir()
+	// Only API driver available, but budget=low → should skip
+	writeHealth(t, dir, "anthropic", HealthFile{State: "CLOSED", Failures: 0})
+
+	r := NewRouter(dir)
+	dec := r.Recommend("any", "low")
+
+	if !dec.Skip {
+		t.Fatalf("expected Skip (API driver not allowed at low budget), got driver=%s", dec.Driver)
+	}
+	// CascadeTrace should mention the budget ceiling stop
+	found := false
+	for _, entry := range dec.CascadeTrace {
+		if strings.Contains(entry, "exceeds budget ceiling") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("CascadeTrace should mention budget ceiling, got: %v", dec.CascadeTrace)
 	}
 }

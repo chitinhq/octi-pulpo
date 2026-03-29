@@ -429,12 +429,12 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "route_recommend",
-			Description: "Get the recommended driver for a task based on cost tier and driver health. Returns cheapest healthy driver with fallback options.",
+			Description: "Get the recommended driver for a task via the cost-tier cascade: local→subscription→CLI→API. Returns cheapest healthy driver that meets the task's capability requirement. Includes cascade_trace showing why tiers were skipped.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"taskDescription": map[string]string{"type": "string", "description": "Describe the task"},
-					"budget":          map[string]interface{}{"type": "string", "enum": []string{"low", "medium", "high"}, "description": "Budget tier — low (local only), medium (local+subscription+cli), high (all)"},
+					"taskDescription": map[string]string{"type": "string", "description": "Describe the task — used to infer minimum capable tier (e.g. 'code-review' skips local, 'triage' stays local)"},
+					"budget":          map[string]interface{}{"type": "string", "enum": []string{"low", "medium", "high"}, "description": "Budget ceiling — low (local only), medium (local+subscription+cli), high/omit (all tiers including API)"},
 				},
 				"required": []string{"taskDescription"},
 			},
