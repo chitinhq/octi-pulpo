@@ -181,17 +181,148 @@ func TestAdaptiveCooldown_FailMaxCap(t *testing.T) {
 	static := func(string) time.Duration { return 90 * time.Minute }
 	ps := NewProfileStore(d.rdb, d.namespace, static)
 
-	for i := 0; i < 5; i++ {
-		ps.RecordRun(ctx, "fail-cap-agent", RunResult{
+	// Use alternating fail/success so fail rate stays high (80%) but
+	// ConsecutiveFails never reaches 3 (no triage flag).
+	// Pattern: fail, success, fail, success, fail → ConsecutiveFails=1
+	runs := []RunResult{
+		{ExitCode: 1, Duration: 30.0},
+		{ExitCode: 0, Duration: 30.0},
+		{ExitCode: 1, Duration: 30.0},
+		{ExitCode: 0, Duration: 30.0},
+		{ExitCode: 1, Duration: 30.0},
+	}
+	for _, r := range runs {
+		ps.RecordRun(ctx, "fail-cap-agent", r)
+	}
+
+	cooldown := ps.AdaptiveCooldown(ctx, "fail-cap-agent")
+	// fail rate=60% > 50%, ConsecutiveFails=1 (no triage),
+	// doubling 90m → 180m → capped at 2h
+	if cooldown != 2*time.Hour {
+		t.Fatalf("expected 2h cap for failing agent, got %s", cooldown)
+	}
+}
+
+func TestProfileStore_ConsecutiveFails(t *testing.T) {
+	d, ctx := testSetup(t)
+	ps := NewProfileStore(d.rdb, d.namespace, d.events.CooldownFor)
+
+	// Three failures in a row
+	for i := 0; i < 3; i++ {
+		ps.RecordRun(ctx, "flaky-agent", RunResult{
 			ExitCode: 1,
 			Duration: 30.0,
 		})
 	}
 
-	cooldown := ps.AdaptiveCooldown(ctx, "fail-cap-agent")
-	// Doubling 90m would be 180m = 3h, but fail cap is 2h
-	if cooldown != 2*time.Hour {
-		t.Fatalf("expected 2h cap for failing agent, got %s", cooldown)
+	profile, _ := ps.GetProfile(ctx, "flaky-agent")
+	if profile.ConsecutiveFails != 3 {
+		t.Fatalf("expected ConsecutiveFails=3, got %d", profile.ConsecutiveFails)
+	}
+	if !profile.TriageFlag {
+		t.Fatal("expected TriageFlag=true after 3 consecutive failures")
+	}
+
+	// A success clears both counters
+	ps.RecordRun(ctx, "flaky-agent", RunResult{
+		ExitCode:   0,
+		Duration:   60.0,
+		HadCommits: true,
+	})
+
+	profile, _ = ps.GetProfile(ctx, "flaky-agent")
+	if profile.ConsecutiveFails != 0 {
+		t.Fatalf("expected ConsecutiveFails=0 after success, got %d", profile.ConsecutiveFails)
+	}
+	if profile.TriageFlag {
+		t.Fatal("expected TriageFlag=false after successful run")
+	}
+}
+
+func TestProfileStore_TriageFlagAtThreshold(t *testing.T) {
+	d, ctx := testSetup(t)
+	ps := NewProfileStore(d.rdb, d.namespace, d.events.CooldownFor)
+
+	// Two failures should NOT set triage flag
+	for i := 0; i < 2; i++ {
+		ps.RecordRun(ctx, "borderline-agent", RunResult{ExitCode: 1, Duration: 30.0})
+	}
+	profile, _ := ps.GetProfile(ctx, "borderline-agent")
+	if profile.TriageFlag {
+		t.Fatal("expected TriageFlag=false after only 2 consecutive failures")
+	}
+
+	// Third failure sets it
+	ps.RecordRun(ctx, "borderline-agent", RunResult{ExitCode: 1, Duration: 30.0})
+	profile, _ = ps.GetProfile(ctx, "borderline-agent")
+	if !profile.TriageFlag {
+		t.Fatal("expected TriageFlag=true after 3rd consecutive failure")
+	}
+}
+
+func TestAdaptiveCooldown_TriageFlag(t *testing.T) {
+	d, ctx := testSetup(t)
+	ps := NewProfileStore(d.rdb, d.namespace, d.events.CooldownFor)
+
+	for i := 0; i < 3; i++ {
+		ps.RecordRun(ctx, "stuck-agent", RunResult{ExitCode: 1, Duration: 30.0})
+	}
+
+	cooldown := ps.AdaptiveCooldown(ctx, "stuck-agent")
+	if cooldown != 12*time.Hour {
+		t.Fatalf("expected 12h triage cooldown, got %s", cooldown)
+	}
+}
+
+func TestAdaptiveCooldown_BudgetTightIdle(t *testing.T) {
+	d, ctx := testSetup(t)
+	static := func(string) time.Duration { return 10 * time.Minute }
+	ps := NewProfileStore(d.rdb, d.namespace, static)
+	// Budget at 20% health → tight
+	ps.SetBudgetHealthFn(func() float64 { return 0.2 })
+
+	ps.RecordRun(ctx, "budget-idle", RunResult{
+		ExitCode:   0,
+		Duration:   5.0,
+		HadCommits: false,
+	})
+
+	cooldown := ps.AdaptiveCooldown(ctx, "budget-idle")
+	// Budget tight multiplier: 3× instead of 2× → 30m
+	if cooldown != 30*time.Minute {
+		t.Fatalf("expected 30m (3× idle under tight budget), got %s", cooldown)
+	}
+}
+
+func TestAdaptiveCooldown_BudgetHealthyHotStreak(t *testing.T) {
+	d, ctx := testSetup(t)
+	ps := NewProfileStore(d.rdb, d.namespace, d.events.CooldownFor)
+	// Budget at 90% health → healthy
+	ps.SetBudgetHealthFn(func() float64 { return 0.9 })
+
+	ps.RecordRun(ctx, "hot-agent", RunResult{
+		ExitCode:   0,
+		Duration:   120.0,
+		HadCommits: true,
+	})
+
+	cooldown := ps.AdaptiveCooldown(ctx, "hot-agent")
+	// Hot streak + healthy budget → 2.5 min
+	if cooldown != 150*time.Second {
+		t.Fatalf("expected 150s for hot streak with healthy budget, got %s", cooldown)
+	}
+}
+
+func TestAdaptiveCooldown_BudgetTightNoHistory(t *testing.T) {
+	d, ctx := testSetup(t)
+	static := func(string) time.Duration { return 10 * time.Minute }
+	ps := NewProfileStore(d.rdb, d.namespace, static)
+	ps.SetBudgetHealthFn(func() float64 { return 0.1 }) // all drivers exhausted
+
+	// No run history — should get 3× static cooldown
+	cooldown := ps.AdaptiveCooldown(ctx, "new-agent")
+	if cooldown != 30*time.Minute {
+		t.Fatalf("expected 30m (3× static under tight budget), got %s", cooldown)
 	}
 }
 
