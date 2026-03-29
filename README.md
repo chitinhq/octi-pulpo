@@ -60,18 +60,29 @@ route_recommend  — get optimal model for a task type
 ## Quick Start
 
 ```bash
-# Coming soon
-npm install @octi-pulpo/server
-octi-pulpo start
+go build -o octi-pulpo ./cmd/octi-pulpo/
+OCTI_REDIS_URL=redis://localhost:6379 ./octi-pulpo
+```
+
+Or run via MCP config in your agent's settings:
+```json
+{
+  "mcpServers": {
+    "octi-pulpo": {
+      "command": "/path/to/octi-pulpo",
+      "env": { "OCTI_REDIS_URL": "redis://localhost:6379" }
+    }
+  }
+}
 ```
 
 ## Stack
 
+- **Go** — Single binary, sub-ms tool responses, zero dependencies
 - **Redis** — Hot state: assignments, locks, heartbeats, cycle coordination, pub/sub signals
 - **Dagu** — Workflow orchestration for multi-agent dependency chains (Arm 5)
 - **Vector DB** (Qdrant) — Cold knowledge: learnings, patterns, cross-cycle memory
-- **MCP Server** — Tool interface for all agent runtimes
-- **TypeScript** — Core coordination engine
+- **MCP Server** — Stdio JSON-RPC interface for all agent runtimes
 
 ## Relationship to AgentGuard
 
