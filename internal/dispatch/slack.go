@@ -13,7 +13,9 @@ import (
 )
 
 // Notifier posts structured notifications to a Slack incoming webhook.
-// If no webhook URL is configured, all Post* methods are no-ops.
+// It supports both plain-text messages and interactive Block Kit messages
+// with action buttons. If no webhook URL is configured, all Post* methods
+// are no-ops.
 type Notifier struct {
 	webhookURL string
 	client     *http.Client
@@ -83,6 +85,82 @@ func (n *Notifier) PostDriversRecovered(ctx context.Context) error {
 	return n.post(ctx, map[string]interface{}{"text": "✅ *Drivers Recovered* — dispatch resumed"})
 }
 
+// PostDriverAlert sends an interactive Block Kit message for a single driver circuit alert.
+// It includes [Pause Squad], [Switch Tier], and [Ignore] action buttons.
+// Button clicks are routed back to the /slack/actions endpoint.
+func (n *Notifier) PostDriverAlert(ctx context.Context, driverName string, failures int) error {
+	if !n.Enabled() {
+		return nil
+	}
+
+	msg := fmt.Sprintf(
+		"🔴 *Driver Alert: `%s`*\nCircuit breaker OPEN — %d consecutive failures.\nAgents are being rerouted to available drivers.",
+		driverName, failures,
+	)
+
+	blocks := []map[string]interface{}{
+		blockSection(msg),
+		blockActions(
+			slackButton("pause_squad", driverName, "Pause Squad", "danger"),
+			slackButton("switch_tier", driverName, "Switch Tier", "primary"),
+			slackButton("ignore_alert", driverName, "Ignore", ""),
+		),
+	}
+
+	return n.postBlocks(ctx, blocks)
+}
+
+// PostPRReadyAlert sends an interactive Block Kit message for a PR ready to merge.
+// It includes [Merge], [Review], and [Skip] action buttons.
+func (n *Notifier) PostPRReadyAlert(ctx context.Context, repo string, prNumber int, title string) error {
+	if !n.Enabled() {
+		return nil
+	}
+
+	prURL := fmt.Sprintf("https://github.com/%s/pull/%d", repo, prNumber)
+	msg := fmt.Sprintf(
+		"🟡 *PR Ready to Merge*\n<%s|#%d: %s>\nAll checks green — awaiting merge decision.",
+		prURL, prNumber, title,
+	)
+	prKey := fmt.Sprintf("%s/%d", repo, prNumber)
+
+	blocks := []map[string]interface{}{
+		blockSection(msg),
+		blockActions(
+			slackButton("merge_pr", prKey, "Merge", "primary"),
+			slackButton("review_pr", prKey, "Review", ""),
+			slackButton("skip_pr", prKey, "Skip", ""),
+		),
+	}
+
+	return n.postBlocks(ctx, blocks)
+}
+
+// PostSprintGoalAlert sends an interactive Block Kit message when a sprint goal is delivered.
+// It includes [Accept] and [Request Changes] action buttons.
+func (n *Notifier) PostSprintGoalAlert(ctx context.Context, squad, goal string) error {
+	if !n.Enabled() {
+		return nil
+	}
+
+	msg := fmt.Sprintf("🟢 *Sprint Goal Delivered*\nSquad: `%s`\nGoal: %s", squad, goal)
+
+	blocks := []map[string]interface{}{
+		blockSection(msg),
+		blockActions(
+			slackButton("accept_goal", squad, "Accept", "primary"),
+			slackButton("request_changes", squad, "Request Changes", ""),
+		),
+	}
+
+	return n.postBlocks(ctx, blocks)
+}
+
+// postBlocks sends a Slack Block Kit payload to the webhook URL.
+func (n *Notifier) postBlocks(ctx context.Context, blocks []map[string]interface{}) error {
+	return n.post(ctx, map[string]interface{}{"blocks": blocks})
+}
+
 // post marshals the payload and POSTs it to the Slack incoming webhook URL.
 func (n *Notifier) post(ctx context.Context, payload map[string]interface{}) error {
 	body, err := json.Marshal(payload)
@@ -106,4 +184,37 @@ func (n *Notifier) post(ctx context.Context, payload map[string]interface{}) err
 		return fmt.Errorf("slack webhook returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// blockSection returns a Slack Block Kit section block with mrkdwn text.
+func blockSection(text string) map[string]interface{} {
+	return map[string]interface{}{
+		"type": "section",
+		"text": map[string]string{"type": "mrkdwn", "text": text},
+	}
+}
+
+// blockActions returns a Slack Block Kit actions block containing the given buttons.
+func blockActions(buttons ...map[string]interface{}) map[string]interface{} {
+	elements := make([]map[string]interface{}, len(buttons))
+	copy(elements, buttons)
+	return map[string]interface{}{
+		"type":     "actions",
+		"elements": elements,
+	}
+}
+
+// slackButton creates a Slack Block Kit button element.
+// style can be "primary", "danger", or "" (default/secondary).
+func slackButton(actionID, value, text, style string) map[string]interface{} {
+	btn := map[string]interface{}{
+		"type":      "button",
+		"text":      map[string]string{"type": "plain_text", "text": text},
+		"action_id": actionID,
+		"value":     value,
+	}
+	if style != "" {
+		btn["style"] = style
+	}
+	return btn
 }

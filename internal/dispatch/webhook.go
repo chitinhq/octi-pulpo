@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,14 +19,16 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
-// WebhookServer is a lightweight HTTP server for receiving GitHub webhooks.
+// WebhookServer is a lightweight HTTP server for receiving GitHub webhooks
+// and Slack interactive action callbacks.
 // It replaces webhook-listener.py with coordinated dispatch.
 type WebhookServer struct {
-	dispatcher  *Dispatcher
-	secret      []byte
-	mux         *http.ServeMux
-	sprintStore *sprint.Store
-	benchmark   *BenchmarkTracker
+	dispatcher         *Dispatcher
+	secret             []byte // GitHub HMAC-SHA256 webhook secret
+	slackSigningSecret []byte // Slack signing secret for action callbacks
+	mux                *http.ServeMux
+	sprintStore        *sprint.Store
+	benchmark          *BenchmarkTracker
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -53,6 +57,7 @@ func NewWebhookServer(dispatcher *Dispatcher, secretFile string) *WebhookServer 
 	ws.mux.HandleFunc("/sprint/status", ws.handleSprintStatus)
 	ws.mux.HandleFunc("/sprint/sync", ws.handleSprintSync)
 	ws.mux.HandleFunc("/benchmark", ws.handleBenchmark)
+	ws.mux.HandleFunc("/slack/actions", ws.handleSlackActions)
 	return ws
 }
 
@@ -312,6 +317,207 @@ func (ws *WebhookServer) handleBenchmark(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(metrics)
+}
+
+// SetSlackSigningSecret configures the Slack signing secret used to verify
+// interactive action callbacks at /slack/actions.
+func (ws *WebhookServer) SetSlackSigningSecret(secret []byte) {
+	ws.slackSigningSecret = secret
+}
+
+// handleSlackActions receives interactive action callbacks from Slack (Block Kit buttons).
+// Slack POSTs application/x-www-form-urlencoded with a "payload" field containing JSON.
+//
+// Supported action_ids and their effects:
+//   - pause_squad    — publishes a "pause-squad:<driver>" coord signal to Redis
+//   - switch_tier    — dispatches the routing recalculation agent
+//   - ignore_alert   — no-op, acknowledges the alert
+//   - merge_pr       — triggers pr-merger-agent for the given repo/pr
+//   - review_pr      — no-op, acknowledges
+//   - skip_pr        — no-op, acknowledges
+//   - accept_goal    — publishes a "goal-accepted:<squad>" coord signal
+//   - request_changes — publishes a "goal-rejected:<squad>" coord signal
+func (ws *WebhookServer) handleSlackActions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body failed", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// Verify Slack request signature when signing secret is configured.
+	if len(ws.slackSigningSecret) > 0 {
+		ts := r.Header.Get("X-Slack-Request-Timestamp")
+		sig := r.Header.Get("X-Slack-Signature")
+		if !ws.verifySlackSignature(body, ts, sig) {
+			http.Error(w, "invalid signature", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Slack sends payload as URL-encoded form: payload=<json>
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		http.Error(w, "invalid form body", http.StatusBadRequest)
+		return
+	}
+	rawPayload := values.Get("payload")
+	if rawPayload == "" {
+		http.Error(w, "missing payload field", http.StatusBadRequest)
+		return
+	}
+
+	var slackPayload struct {
+		Type    string `json:"type"`
+		Actions []struct {
+			ActionID string `json:"action_id"`
+			Value    string `json:"value"`
+		} `json:"actions"`
+		ResponseURL string `json:"response_url"`
+		User        struct {
+			Name string `json:"name"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal([]byte(rawPayload), &slackPayload); err != nil {
+		http.Error(w, "invalid payload JSON", http.StatusBadRequest)
+		return
+	}
+	if len(slackPayload.Actions) == 0 {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	action := slackPayload.Actions[0]
+	ctx := r.Context()
+	actor := slackPayload.User.Name
+
+	ack, err := ws.routeSlackAction(ctx, action.ActionID, action.Value, actor)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Respond immediately to Slack with an acknowledgement message.
+	// This replaces the original interactive message so it can't be double-clicked.
+	if slackPayload.ResponseURL != "" {
+		go ws.updateSlackMessage(slackPayload.ResponseURL, ack)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"text": ack})
+}
+
+// routeSlackAction performs the work triggered by a Slack button click.
+// It returns a human-readable acknowledgement string for the Slack message update.
+func (ws *WebhookServer) routeSlackAction(ctx context.Context, actionID, value, actor string) (string, error) {
+	switch actionID {
+	case "pause_squad":
+		// Publish a pause signal to Redis for this driver.
+		ch := ws.dispatcher.Namespace() + ":signal-stream"
+		sig := fmt.Sprintf(`{"agent_id":"slack:%s","type":"directive","payload":"pause-squad:%s","timestamp":"%s"}`,
+			actor, value, time.Now().UTC().Format(time.RFC3339))
+		if err := ws.dispatcher.RedisClient().Publish(ctx, ch, sig).Err(); err != nil {
+			return "", fmt.Errorf("publish pause signal: %w", err)
+		}
+		return fmt.Sprintf("⏸ Squad paused for driver `%s` by @%s", value, actor), nil
+
+	case "switch_tier":
+		// Trigger the routing recalculation by dispatching the senior agent.
+		event := Event{
+			Type:    EventSignal,
+			Source:  "slack",
+			Payload: map[string]string{"action": "switch_tier", "driver": value, "actor": actor},
+		}
+		_, err := ws.dispatcher.Dispatch(ctx, event, "octi-pulpo-sr", 1)
+		if err != nil {
+			return "", fmt.Errorf("dispatch switch-tier: %w", err)
+		}
+		return fmt.Sprintf("🔀 Tier switch initiated for driver `%s` by @%s", value, actor), nil
+
+	case "merge_pr":
+		// Trigger the PR merger agent.
+		event := Event{
+			Type:    EventSignal,
+			Source:  "slack",
+			Payload: map[string]string{"action": "merge_pr", "pr": value, "actor": actor},
+		}
+		_, err := ws.dispatcher.Dispatch(ctx, event, "pr-merger-agent", 1)
+		if err != nil {
+			return "", fmt.Errorf("dispatch merge: %w", err)
+		}
+		return fmt.Sprintf("🔀 Merge triggered for PR `%s` by @%s", value, actor), nil
+
+	case "accept_goal":
+		ch := ws.dispatcher.Namespace() + ":signal-stream"
+		sig := fmt.Sprintf(`{"agent_id":"slack:%s","type":"directive","payload":"goal-accepted:%s","timestamp":"%s"}`,
+			actor, value, time.Now().UTC().Format(time.RFC3339))
+		if err := ws.dispatcher.RedisClient().Publish(ctx, ch, sig).Err(); err != nil {
+			return "", fmt.Errorf("publish goal-accepted signal: %w", err)
+		}
+		return fmt.Sprintf("✅ Sprint goal accepted for `%s` by @%s", value, actor), nil
+
+	case "request_changes":
+		ch := ws.dispatcher.Namespace() + ":signal-stream"
+		sig := fmt.Sprintf(`{"agent_id":"slack:%s","type":"directive","payload":"goal-rejected:%s","timestamp":"%s"}`,
+			actor, value, time.Now().UTC().Format(time.RFC3339))
+		if err := ws.dispatcher.RedisClient().Publish(ctx, ch, sig).Err(); err != nil {
+			return "", fmt.Errorf("publish goal-rejected signal: %w", err)
+		}
+		return fmt.Sprintf("🔄 Changes requested for `%s` by @%s", value, actor), nil
+
+	case "ignore_alert", "review_pr", "skip_pr":
+		// Acknowledged — no further action needed.
+		return fmt.Sprintf("👍 Acknowledged by @%s", actor), nil
+
+	default:
+		return fmt.Sprintf("⚠️ Unknown action `%s` by @%s", actionID, actor), nil
+	}
+}
+
+// updateSlackMessage POSTs an updated message to Slack's response_url to replace
+// the original interactive message with an acknowledgement. Fire-and-forget.
+func (ws *WebhookServer) updateSlackMessage(responseURL, text string) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"replace_original": true,
+		"text":             text,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, responseURL, bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
+}
+
+// verifySlackSignature validates a Slack request using the v0 signing scheme:
+//
+//	sig_basestring = "v0:" + timestamp + ":" + body
+//	expected = "v0=" + hex(hmac-sha256(signing_secret, sig_basestring))
+func (ws *WebhookServer) verifySlackSignature(body []byte, timestamp, signature string) bool {
+	if !strings.HasPrefix(signature, "v0=") {
+		return false
+	}
+	sigBytes, err := hex.DecodeString(strings.TrimPrefix(signature, "v0="))
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, ws.slackSigningSecret)
+	fmt.Fprintf(mac, "v0:%s:", timestamp)
+	mac.Write(body)
+	expected := mac.Sum(nil)
+	return hmac.Equal(sigBytes, expected)
 }
 
 func (ws *WebhookServer) parseGitHubEvent(eventType, action, repo string, payload map[string]interface{}) *Event {
