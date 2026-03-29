@@ -312,6 +312,63 @@ func TestStore_SyncPRs_PreservesNonOpen(t *testing.T) {
 	}
 }
 
+func TestMarkClosedItems_MarksOpenAndPROpen(t *testing.T) {
+	s, ctx := testStore(t)
+	repo := "AgentGuardHQ/octi-pulpo"
+	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
+
+	items := []SprintItem{
+		{Squad: "octi-pulpo", IssueNum: 8, Repo: repo, Title: "Cost routing", Priority: 0, Status: "open"},
+		{Squad: "octi-pulpo", IssueNum: 9, Repo: repo, Title: "Slack ctrl", Priority: 0, Status: "pr_open", PRNumber: 41},
+		{Squad: "octi-pulpo", IssueNum: 10, Repo: repo, Title: "Briefings", Priority: 0, Status: "done"},
+		{Squad: "octi-pulpo", IssueNum: 11, Repo: repo, Title: "WIP", Priority: 0, Status: "in_progress"},
+	}
+	for _, item := range items {
+		data, _ := json.Marshal(item)
+		s.rdb.Set(ctx, s.itemKey(repo, item.IssueNum), data, 0)
+	}
+
+	// Closed issues on GitHub: #8 and #9. #10 already done. #11 in_progress should still become done.
+	marked := s.markClosedItems(ctx, repo, []int{8, 9, 10, 11})
+	if marked != 3 {
+		t.Fatalf("expected 3 marked, got %d", marked)
+	}
+
+	all, _ := s.GetAll(ctx)
+	byNum := make(map[int]SprintItem, len(all))
+	for _, item := range all {
+		byNum[item.IssueNum] = item
+	}
+
+	for _, num := range []int{8, 9, 11} {
+		if byNum[num].Status != "done" {
+			t.Errorf("issue #%d: expected done, got %s", num, byNum[num].Status)
+		}
+	}
+	if byNum[10].Status != "done" {
+		t.Errorf("issue #10 should stay done, got %s", byNum[10].Status)
+	}
+}
+
+func TestMarkClosedItems_SkipsUntracked(t *testing.T) {
+	s, ctx := testStore(t)
+	repo := "AgentGuardHQ/octi-pulpo"
+
+	// Sprint store has no items for this repo
+	marked := s.markClosedItems(ctx, repo, []int{1, 2, 3})
+	if marked != 0 {
+		t.Fatalf("expected 0 marked for untracked items, got %d", marked)
+	}
+}
+
+func TestMarkClosedItems_EmptyList(t *testing.T) {
+	s, ctx := testStore(t)
+	marked := s.markClosedItems(ctx, "AgentGuardHQ/octi-pulpo", []int{})
+	if marked != 0 {
+		t.Fatalf("expected 0 for empty list, got %d", marked)
+	}
+}
+
 func TestInferSquadFromRepo(t *testing.T) {
 	tests := []struct {
 		repo  string
