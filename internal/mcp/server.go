@@ -368,6 +368,66 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, dispatch.FormatLeaderboard(entries))
 
+	case "request_work":
+		var args struct {
+			ToSquad         string `json:"to_squad"`
+			Type            string `json:"type"`
+			Description     string `json:"description"`
+			Priority        int    `json:"priority"`
+			DeadlineMinutes int    `json:"deadline_minutes"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.ToSquad == "" || args.Description == "" {
+			return errorResp(req.ID, -32602, "to_squad and description are required")
+		}
+		crossReq, err := s.coord.SubmitRequest(ctx, agentID, args.ToSquad,
+			coordination.RequestType(args.Type), args.Description,
+			args.Priority, args.DeadlineMinutes)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf(
+			"Request %s submitted to squad %s (type: %s, priority: %d)",
+			crossReq.ID, crossReq.ToSquad, crossReq.Type, crossReq.Priority,
+		))
+
+	case "check_requests":
+		var args struct {
+			Squad string `json:"squad"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Squad == "" {
+			return errorResp(req.ID, -32602, "squad is required")
+		}
+		pending, err := s.coord.GetPendingRequests(ctx, args.Squad)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if len(pending) == 0 {
+			return textResult(req.ID, fmt.Sprintf("No pending requests for squad %s.", args.Squad))
+		}
+		data, _ := json.Marshal(pending)
+		return textResult(req.ID, string(data))
+
+	case "fulfill_request":
+		var args struct {
+			RequestID string `json:"request_id"`
+			Result    string `json:"result"`
+			PRNumber  int    `json:"pr_number"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.RequestID == "" || args.Result == "" {
+			return errorResp(req.ID, -32602, "request_id and result are required")
+		}
+		if err := s.coord.FulfillRequest(ctx, args.RequestID, agentID, args.Result, args.PRNumber); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		msg := fmt.Sprintf("Request %s fulfilled.", args.RequestID)
+		if args.PRNumber > 0 {
+			msg += fmt.Sprintf(" PR #%d linked.", args.PRNumber)
+		}
+		return textResult(req.ID, msg)
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -578,6 +638,45 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "request_work",
+			Description: "Request work from another squad. The request is stored and routed to the target squad's agents on their next tick. Use when you need a report, query, review, fix, or deploy from a different squad's domain.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"to_squad":         map[string]string{"type": "string", "description": "Target squad name (e.g. 'analytics', 'kernel', 'shellforge')"},
+					"type":             map[string]interface{}{"type": "string", "enum": []string{"report", "query", "review", "fix", "deploy"}, "description": "Work type"},
+					"description":      map[string]string{"type": "string", "description": "What you need done"},
+					"priority":         map[string]interface{}{"type": "number", "description": "0=urgent, 1=high, 2=normal (default 2)"},
+					"deadline_minutes": map[string]interface{}{"type": "number", "description": "How soon you need this (in minutes). Default: 1440 (24h)"},
+				},
+				"required": []string{"to_squad", "description"},
+			},
+		},
+		{
+			Name:        "check_requests",
+			Description: "Check for incoming cross-squad work requests targeting your squad. Returns pending requests with age, priority, and description. Call at the start of each run to pick up delegated work.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad": map[string]string{"type": "string", "description": "Your squad name (e.g. 'analytics', 'kernel')"},
+				},
+				"required": []string{"squad"},
+			},
+		},
+		{
+			Name:        "fulfill_request",
+			Description: "Mark a cross-squad request as complete. Notifies the requesting agent via coord_signal and removes the request from the pending queue.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"request_id": map[string]string{"type": "string", "description": "Request ID returned by request_work or check_requests"},
+					"result":     map[string]string{"type": "string", "description": "Summary of the work done / where to find the output"},
+					"pr_number":  map[string]interface{}{"type": "number", "description": "PR number if the work resulted in a pull request (optional)"},
+				},
+				"required": []string{"request_id", "result"},
 			},
 		},
 	}
