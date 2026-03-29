@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 )
@@ -44,14 +45,20 @@ type RPCError struct {
 
 // Server is the Octi Pulpo MCP server.
 type Server struct {
-	mem    *memory.Store
-	coord  *coordination.Engine
-	router *routing.Router
+	mem        *memory.Store
+	coord      *coordination.Engine
+	router     *routing.Router
+	dispatcher *dispatch.Dispatcher
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
 func New(mem *memory.Store, coord *coordination.Engine, router *routing.Router) *Server {
 	return &Server{mem: mem, coord: coord, router: router}
+}
+
+// SetDispatcher adds dispatch capabilities to the MCP server.
+func (s *Server) SetDispatcher(d *dispatch.Dispatcher) {
+	s.dispatcher = d
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -197,6 +204,75 @@ func (s *Server) handleToolCall(req Request) Response {
 		data, _ := json.Marshal(report)
 		return textResult(req.ID, string(data))
 
+	case "dispatch_event":
+		if s.dispatcher == nil {
+			return errorResp(req.ID, -32000, "dispatcher not initialized")
+		}
+		var args struct {
+			EventType string            `json:"eventType"`
+			Source    string            `json:"source"`
+			Repo     string            `json:"repo"`
+			Payload  map[string]string `json:"payload"`
+			Priority int               `json:"priority"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.EventType == "" {
+			return errorResp(req.ID, -32602, "eventType is required")
+		}
+		event := dispatch.Event{
+			Type:     dispatch.EventType(args.EventType),
+			Source:   args.Source,
+			Repo:     args.Repo,
+			Payload:  args.Payload,
+			Priority: args.Priority,
+		}
+		results, err := s.dispatcher.DispatchEvent(ctx, event)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		data, _ := json.Marshal(results)
+		return textResult(req.ID, string(data))
+
+	case "dispatch_status":
+		if s.dispatcher == nil {
+			return errorResp(req.ID, -32000, "dispatcher not initialized")
+		}
+		depth, _ := s.dispatcher.PendingCount(ctx)
+		agents, _ := s.dispatcher.PendingAgents(ctx)
+		recent, _ := s.dispatcher.RecentDispatches(ctx, 10)
+
+		status := map[string]interface{}{
+			"queue_depth":       depth,
+			"pending_agents":    agents,
+			"recent_dispatches": recent,
+		}
+		data, _ := json.Marshal(status)
+		return textResult(req.ID, string(data))
+
+	case "dispatch_trigger":
+		if s.dispatcher == nil {
+			return errorResp(req.ID, -32000, "dispatcher not initialized")
+		}
+		var args struct {
+			Agent    string `json:"agent"`
+			Priority int    `json:"priority"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Agent == "" {
+			return errorResp(req.ID, -32602, "agent name is required")
+		}
+		event := dispatch.Event{
+			Type:     dispatch.EventManual,
+			Source:   "mcp",
+			Payload:  map[string]string{"triggered_by": agentID},
+		}
+		result, err := s.dispatcher.Dispatch(ctx, event, args.Agent, args.Priority)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		data, _ := json.Marshal(result)
+		return textResult(req.ID, string(data))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -289,6 +365,41 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "dispatch_event",
+			Description: "Submit an event for routing through the dispatcher. The event is matched against rules and dispatched to the appropriate agent(s) with coordination, cooldown, and budget checks.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"eventType": map[string]interface{}{"type": "string", "enum": []string{"pr.opened", "pr.updated", "ci.completed", "timer", "budget.change", "manual", "slack.action"}, "description": "Event type"},
+					"source":    map[string]string{"type": "string", "description": "Event source (github, cron, slack, manual)"},
+					"repo":      map[string]string{"type": "string", "description": "Repository full name (e.g. AgentGuardHQ/agentguard)"},
+					"payload":   map[string]interface{}{"type": "object", "description": "Event-specific key-value data"},
+					"priority":  map[string]interface{}{"type": "number", "description": "Priority (0=critical, 1=high, 2=normal, 3=background)"},
+				},
+				"required": []string{"eventType"},
+			},
+		},
+		{
+			Name:        "dispatch_status",
+			Description: "Show current dispatch queue depth, pending agents, and recent dispatch decisions.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "dispatch_trigger",
+			Description: "Manually trigger an agent run. Bypasses event matching but still respects cooldown and coordination claims.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent":    map[string]string{"type": "string", "description": "Agent name to trigger"},
+					"priority": map[string]interface{}{"type": "number", "description": "Priority (0=critical, 1=high, 2=normal, 3=background). Default: 1"},
+				},
+				"required": []string{"agent"},
 			},
 		},
 	}
