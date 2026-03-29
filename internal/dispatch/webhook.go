@@ -45,6 +45,7 @@ func NewWebhookServer(dispatcher *Dispatcher, secretFile string) *WebhookServer 
 	ws.mux.HandleFunc("/health", ws.handleHealth)
 	ws.mux.HandleFunc("/dispatch/status", ws.handleStatus)
 	ws.mux.HandleFunc("/dispatch/trigger", ws.handleTrigger)
+	ws.mux.HandleFunc("/dispatch/timer", ws.handleTimerTrigger)
 	return ws
 }
 
@@ -168,6 +169,46 @@ func (ws *WebhookServer) handleTrigger(w http.ResponseWriter, r *http.Request) {
 		Source:   "http",
 		Priority: req.Priority,
 		Payload:  map[string]string{"triggered_by": "http_api"},
+	}
+
+	ctx := context.Background()
+	result, err := ws.dispatcher.Dispatch(ctx, event, req.Agent, req.Priority)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func (ws *WebhookServer) handleTimerTrigger(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Agent    string `json:"agent"`
+		Priority int    `json:"priority"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if req.Agent == "" {
+		http.Error(w, "agent name required", http.StatusBadRequest)
+		return
+	}
+	if req.Priority == 0 {
+		req.Priority = 2 // default timer priority = normal
+	}
+
+	event := Event{
+		Type:     EventTimer,
+		Source:   "timer",
+		Priority: req.Priority,
+		Payload:  map[string]string{"triggered_by": "octi-timer"},
 	}
 
 	ctx := context.Background()
