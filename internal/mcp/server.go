@@ -117,26 +117,49 @@ func (s *Server) handleToolCall(req Request) Response {
 	switch params.Name {
 	case "memory_store":
 		var args struct {
-			Content string   `json:"content"`
-			Topics  []string `json:"topics"`
+			Content        string   `json:"content"`
+			Topics         []string `json:"topics"`
+			SquadNamespace string   `json:"squadNamespace"`
 		}
 		json.Unmarshal(params.Arguments, &args)
-		id, err := s.mem.Put(ctx, agentID, args.Content, args.Topics)
+		store := s.mem
+		if args.SquadNamespace != "" {
+			if err := s.mem.RegisterSquad(ctx, args.SquadNamespace); err != nil {
+				fmt.Fprintf(os.Stderr, "register squad: %v\n", err)
+			}
+			store = s.mem.WithSquad(args.SquadNamespace)
+		}
+		id, err := store.Put(ctx, agentID, args.Content, args.Topics)
 		if err != nil {
 			return errorResp(req.ID, -32000, err.Error())
 		}
-		return textResult(req.ID, fmt.Sprintf("Stored memory %s (topics: %s)", id, strings.Join(args.Topics, ", ")))
+		msg := fmt.Sprintf("Stored memory %s (topics: %s)", id, strings.Join(args.Topics, ", "))
+		if args.SquadNamespace != "" {
+			msg += fmt.Sprintf(" [squad: %s]", args.SquadNamespace)
+		}
+		return textResult(req.ID, msg)
 
 	case "memory_recall":
 		var args struct {
-			Query string `json:"query"`
-			Limit int    `json:"limit"`
+			Query          string `json:"query"`
+			Limit          int    `json:"limit"`
+			SquadNamespace string `json:"squadNamespace"`
+			CrossSquad     bool   `json:"crossSquad"`
 		}
 		json.Unmarshal(params.Arguments, &args)
 		if args.Limit == 0 {
 			args.Limit = 5
 		}
-		results, err := s.mem.Recall(ctx, args.Query, args.Limit)
+		var results []memory.Entry
+		var err error
+		switch {
+		case args.CrossSquad:
+			results, err = s.mem.RecallCrossSquad(ctx, args.Query, args.Limit)
+		case args.SquadNamespace != "":
+			results, err = s.mem.WithSquad(args.SquadNamespace).Recall(ctx, args.Query, args.Limit)
+		default:
+			results, err = s.mem.Recall(ctx, args.Query, args.Limit)
+		}
 		if err != nil {
 			return errorResp(req.ID, -32000, err.Error())
 		}
@@ -296,24 +319,27 @@ func toolDefs() []ToolDef {
 	return []ToolDef{
 		{
 			Name:        "memory_store",
-			Description: "Store a learning in the swarm knowledge base, tagged with your identity and topics.",
+			Description: "Store a learning in the swarm knowledge base, tagged with your identity and topics. Pass squadNamespace to isolate memories by squad.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"content": map[string]string{"type": "string", "description": "What you learned / observed / decided"},
-					"topics":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Topic tags"},
+					"content":        map[string]string{"type": "string", "description": "What you learned / observed / decided"},
+					"topics":         map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Topic tags"},
+					"squadNamespace": map[string]string{"type": "string", "description": "Optional squad namespace for isolation (e.g. 'octi-pulpo', 'agentguard'). Omit for root namespace."},
 				},
 				"required": []string{"content", "topics"},
 			},
 		},
 		{
 			Name:        "memory_recall",
-			Description: "Search the swarm knowledge base. Returns relevant learnings from all agents.",
+			Description: "Search the swarm knowledge base. Scoped by squadNamespace when provided, or cross-squad when crossSquad=true.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"query": map[string]string{"type": "string", "description": "What are you looking for?"},
-					"limit": map[string]interface{}{"type": "number", "description": "Max results (default 5)"},
+					"query":          map[string]string{"type": "string", "description": "What are you looking for?"},
+					"limit":          map[string]interface{}{"type": "number", "description": "Max results (default 5)"},
+					"squadNamespace": map[string]string{"type": "string", "description": "Search within a specific squad namespace. Omit for root namespace."},
+					"crossSquad":     map[string]interface{}{"type": "boolean", "description": "Search across all squad namespaces (overrides squadNamespace). Default false."},
 				},
 				"required": []string{"query"},
 			},

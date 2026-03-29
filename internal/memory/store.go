@@ -91,6 +91,59 @@ func (s *Store) Recall(ctx context.Context, query string, limit int) ([]Entry, e
 	return matches, nil
 }
 
+// WithSquad returns a Store that scopes all keys under <ns>:<squadNS>:.
+// The underlying Redis connection is shared; do not call Close on the result.
+// Returns s unchanged when squadNS is empty.
+func (s *Store) WithSquad(squadNS string) *Store {
+	if squadNS == "" {
+		return s
+	}
+	return &Store{rdb: s.rdb, ns: s.ns + ":" + squadNS}
+}
+
+// RegisterSquad adds squadNS to the set of known squad namespaces on the
+// root store, so that RecallCrossSquad can discover it later.
+func (s *Store) RegisterSquad(ctx context.Context, squadNS string) error {
+	return s.rdb.SAdd(ctx, s.key("squads"), squadNS).Err()
+}
+
+// SquadNames returns every squad namespace that has been registered via
+// RegisterSquad on this store.
+func (s *Store) SquadNames(ctx context.Context) ([]string, error) {
+	return s.rdb.SMembers(ctx, s.key("squads")).Result()
+}
+
+// RecallCrossSquad searches memories in the root namespace plus every
+// registered squad namespace, deduplicating by entry ID.
+func (s *Store) RecallCrossSquad(ctx context.Context, query string, limit int) ([]Entry, error) {
+	squads, _ := s.SquadNames(ctx)
+
+	seen := make(map[string]bool)
+	var results []Entry
+
+	search := func(st *Store) {
+		if len(results) >= limit {
+			return
+		}
+		entries, err := st.Recall(ctx, query, limit)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if !seen[e.ID] && len(results) < limit {
+				seen[e.ID] = true
+				results = append(results, e)
+			}
+		}
+	}
+
+	search(s) // root namespace first
+	for _, name := range squads {
+		search(s.WithSquad(name))
+	}
+	return results, nil
+}
+
 // Close shuts down the Redis connection.
 func (s *Store) Close() error {
 	return s.rdb.Close()
