@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 )
+
+// issueRefRe matches "Closes #N", "Fixes #N", "Resolves #N" (and plural/past
+// tense variants) in PR bodies. Used by SyncPRs to link PRs to sprint items.
+var issueRefRe = regexp.MustCompile(`(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)`)
 
 // SprintItem represents a single issue in the sprint backlog.
 type SprintItem struct {
@@ -64,8 +69,34 @@ type ghIssue struct {
 	} `json:"assignees"`
 }
 
+// ghPR is the JSON shape returned by `gh pr list --json number,body`.
+type ghPR struct {
+	Number int    `json:"number"`
+	Body   string `json:"body"`
+}
+
+// parseIssueRefs extracts issue numbers referenced in a PR body via standard
+// GitHub closing keywords (Closes, Fixes, Resolves — any case, singular or plural).
+func parseIssueRefs(body string) []int {
+	matches := issueRefRe.FindAllStringSubmatch(body, -1)
+	var nums []int
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		nums = append(nums, n)
+	}
+	return nums
+}
+
 // Sync fetches open issues from a GitHub repo and stores them in Redis.
 // Issues labeled "sprint" get priority 0, others get priority 2.
+// After syncing issues it calls SyncPRs to mark items with open PRs as "pr_open",
+// preventing the brain from dispatching agents to re-implement in-flight work.
 func (s *Store) Sync(ctx context.Context, repo string) error {
 	cmd := exec.CommandContext(ctx, "gh", "issue", "list",
 		"-R", repo,
@@ -156,7 +187,110 @@ func (s *Store) Sync(ctx context.Context, repo string) error {
 	}
 
 	s.log.Printf("synced %d issues from %s", len(issues), repo)
+
+	// Promote items that already have open PRs so the brain doesn't re-dispatch.
+	if err := s.SyncPRs(ctx, repo); err != nil {
+		s.log.Printf("sync PRs for %s: %v", repo, err)
+	}
 	return nil
+}
+
+// SyncPRs fetches open PRs for a repo and transitions sprint items from
+// status="open" to status="pr_open" whenever a PR body references the issue via
+// a standard GitHub closing keyword (Closes/Fixes/Resolves #N).
+// Items already in a non-open state are not modified, so "claimed", "done", etc.
+// are preserved. The highest-numbered PR wins when multiple PRs reference the
+// same issue.
+func (s *Store) SyncPRs(ctx context.Context, repo string) error {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "list",
+		"-R", repo,
+		"--state", "open",
+		"--json", "number,body",
+		"-L", "100",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("gh pr list -R %s: %w", repo, err)
+	}
+
+	var prs []ghPR
+	if err := json.Unmarshal(out, &prs); err != nil {
+		return fmt.Errorf("parse pr list for %s: %w", repo, err)
+	}
+
+	// Build map: issueNum → highest PR number referencing it.
+	issueToLatestPR := make(map[int]int)
+	for _, pr := range prs {
+		for _, issueNum := range parseIssueRefs(pr.Body) {
+			if pr.Number > issueToLatestPR[issueNum] {
+				issueToLatestPR[issueNum] = pr.Number
+			}
+		}
+	}
+
+	if len(issueToLatestPR) == 0 {
+		return nil
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	updated := 0
+	for issueNum, prNum := range issueToLatestPR {
+		key := s.itemKey(repo, issueNum)
+		raw, err := s.rdb.Get(ctx, key).Result()
+		if err != nil {
+			continue // issue not in sprint store; skip
+		}
+		var item SprintItem
+		if err := json.Unmarshal([]byte(raw), &item); err != nil {
+			continue
+		}
+		// Only promote open items; preserve claimed/in_progress/done/etc.
+		if item.Status != "open" {
+			continue
+		}
+		item.Status = "pr_open"
+		item.PRNumber = prNum
+		item.UpdatedAt = now
+
+		data, err := json.Marshal(item)
+		if err != nil {
+			continue
+		}
+		if err := s.rdb.Set(ctx, key, data, 0).Err(); err != nil {
+			s.log.Printf("update pr_open for %s#%d: %v", repo, issueNum, err)
+			continue
+		}
+		updated++
+	}
+
+	s.log.Printf("synced %d open PRs from %s (%d items promoted to pr_open)", len(prs), repo, updated)
+	return nil
+}
+
+// NextMergeable returns sprint items that have an open PR (status="pr_open"),
+// sorted by priority (P0 first). The brain uses this to dispatch pr-merger-agent
+// rather than re-dispatching SR agents to re-implement already-solved work.
+func (s *Store) NextMergeable(ctx context.Context) ([]SprintItem, error) {
+	all, err := s.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var mergeable []SprintItem
+	for _, item := range all {
+		if item.Status == "pr_open" && item.PRNumber > 0 {
+			mergeable = append(mergeable, item)
+		}
+	}
+
+	sort.Slice(mergeable, func(i, j int) bool {
+		if mergeable[i].Priority != mergeable[j].Priority {
+			return mergeable[i].Priority < mergeable[j].Priority
+		}
+		return mergeable[i].IssueNum < mergeable[j].IssueNum
+	})
+
+	return mergeable, nil
 }
 
 // NextDispatchable returns sprint items that are ready to work on:

@@ -314,6 +314,24 @@ func (b *Brain) identifyConstraint(ctx context.Context) Constraint {
 		}
 	}
 
+	// 2.5. P0 items with open PRs ready to merge — higher priority than idle agents.
+	// Prevents the brain from dispatching SR agents to re-implement work that
+	// already has a passing PR waiting in the queue.
+	if b.sprintStore != nil {
+		mergeable, err := b.sprintStore.NextMergeable(ctx)
+		if err == nil {
+			for _, item := range mergeable {
+				if item.Priority == 0 {
+					return Constraint{
+						Type:        "p0_prs_ready",
+						Description: fmt.Sprintf("P0 PR ready: %s#%d (PR #%d) — %s", item.Repo, item.IssueNum, item.PRNumber, item.Title),
+						Severity:    0,
+					}
+				}
+			}
+		}
+	}
+
 	// 3. Idle agents (agents with 0 commits in recent runs, <10s avg duration)
 	if b.profiles != nil {
 		idleAgents := b.findIdleAgents(ctx)
@@ -356,6 +374,8 @@ func (b *Brain) highestLeverageAction(ctx context.Context, constraint Constraint
 	switch constraint.Type {
 	case "p0_bugs":
 		return b.leverageForP0(ctx)
+	case "p0_prs_ready":
+		return b.leverageForP0PRsMerge(ctx)
 	case "idle_agents":
 		return b.leverageForIdleAgents(ctx)
 	case "stale_prs":
@@ -419,6 +439,30 @@ func (b *Brain) leverageForIdleAgents(ctx context.Context) *LeverageAction {
 		Score:    5.0,
 		Reason:   fmt.Sprintf("idle agents detected, assigning sprint item: %s", item.Title),
 	}
+}
+
+// leverageForP0PRsMerge dispatches pr-merger-agent at the highest-priority item
+// that has an open PR, preventing duplicate SR dispatches for in-flight work.
+func (b *Brain) leverageForP0PRsMerge(ctx context.Context) *LeverageAction {
+	if b.sprintStore == nil {
+		return nil
+	}
+	mergeable, err := b.sprintStore.NextMergeable(ctx)
+	if err != nil || len(mergeable) == 0 {
+		return nil
+	}
+	for _, item := range mergeable {
+		if item.Priority == 0 {
+			return &LeverageAction{
+				Agent:    "pr-merger-agent",
+				IssueNum: item.IssueNum,
+				Repo:     item.Repo,
+				Score:    9.0,
+				Reason:   fmt.Sprintf("P0 PR #%d ready to merge: %s", item.PRNumber, item.Title),
+			}
+		}
+	}
+	return nil
 }
 
 // leverageForStalePRs dispatches a reviewer.
