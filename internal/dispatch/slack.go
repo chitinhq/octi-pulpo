@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 )
 
 // Notifier posts structured notifications to a Slack incoming webhook.
@@ -108,6 +109,35 @@ func (n *Notifier) PostDriverAlert(ctx context.Context, driverName string, failu
 	}
 
 	return n.postBlocks(ctx, blocks)
+}
+
+// PostDailyStandup posts a unified standup summary for all squads to Slack.
+func (n *Notifier) PostDailyStandup(ctx context.Context, entries []standup.Entry) error {
+	if !n.Enabled() {
+		return nil
+	}
+
+	date := time.Now().UTC().Format("2006-01-02")
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("*📋 Daily Standup — %s*\n", date))
+
+	for _, e := range entries {
+		sb.WriteString(fmt.Sprintf("\n*%s*\n", e.Squad))
+		if len(e.Done) > 0 {
+			sb.WriteString("  ✅ Done: " + strings.Join(e.Done, " · ") + "\n")
+		}
+		if len(e.Doing) > 0 {
+			sb.WriteString("  🔧 Doing: " + strings.Join(e.Doing, " · ") + "\n")
+		}
+		if len(e.Blocked) > 0 {
+			sb.WriteString("  🚧 Blocked: " + strings.Join(e.Blocked, " · ") + "\n")
+		}
+		if len(e.Requests) > 0 {
+			sb.WriteString("  📬 Requests: " + strings.Join(e.Requests, " · ") + "\n")
+		}
+	}
+
+	return n.post(ctx, map[string]interface{}{"text": sb.String()})
 }
 
 // PostPRReadyAlert sends an interactive Block Kit message for a PR ready to merge.

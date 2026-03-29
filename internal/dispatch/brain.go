@@ -13,6 +13,7 @@ import (
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 )
 
 // Constraint represents the single most important bottleneck in the system.
@@ -42,20 +43,23 @@ type LeverageAction struct {
 //   - Sprint store sync: periodically refresh issue data from GitHub
 //   - Driver health probe: ping each driver every 15 min to detect stale state
 //   - Slack notifications: periodic budget dashboard + driver state change alerts
+//   - Daily standup: post unified squad standup to Slack once per day
 type Brain struct {
-	dispatcher      *Dispatcher
-	chains          ChainConfig
-	tickInterval    time.Duration
-	probeInterval   time.Duration
-	log             *log.Logger
-	sprintStore     *sprint.Store
-	profiles        *ProfileStore
-	notifier        *Notifier
-	lastSync        time.Time
-	lastProbe       time.Time
-	lastDashboard   time.Time
-	dashboardPeriod time.Duration
-	driversWereDown bool // tracks transition for edge-triggered alerts
+	dispatcher        *Dispatcher
+	chains            ChainConfig
+	tickInterval      time.Duration
+	probeInterval     time.Duration
+	log               *log.Logger
+	sprintStore       *sprint.Store
+	standupStore      *standup.Store
+	profiles          *ProfileStore
+	notifier          *Notifier
+	lastSync          time.Time
+	lastProbe         time.Time
+	lastDashboard     time.Time
+	dashboardPeriod   time.Duration
+	lastStandupDate   string // YYYY-MM-DD, guards once-per-day posting
+	driversWereDown   bool   // tracks transition for edge-triggered alerts
 }
 
 // NewBrain creates a dispatch brain.
@@ -78,6 +82,11 @@ func (b *Brain) SetSprintStore(s *sprint.Store) {
 // SetProfileStore enables adaptive-cooldown-aware constraint analysis.
 func (b *Brain) SetProfileStore(ps *ProfileStore) {
 	b.profiles = ps
+}
+
+// SetStandupStore enables daily standup Slack posting.
+func (b *Brain) SetStandupStore(s *standup.Store) {
+	b.standupStore = s
 }
 
 // SetNotifier enables Slack notifications for driver state changes and periodic dashboards.
@@ -122,7 +131,10 @@ func (b *Brain) Tick(ctx context.Context) {
 	// 4. Periodic Slack dashboard
 	b.maybePostDashboard(ctx)
 
-	// 5. Constraint-driven dispatch (if sprint store is available)
+	// 5. Daily standup (once per calendar day)
+	b.maybePostDailyStandup(ctx)
+
+	// 6. Constraint-driven dispatch (if sprint store is available)
 	if b.sprintStore != nil {
 		constraint := b.identifyConstraint(ctx)
 		b.maybeNotifyConstraintChange(ctx, constraint)
@@ -263,6 +275,36 @@ func (b *Brain) maybePostDashboard(ctx context.Context) {
 		return
 	}
 	b.lastDashboard = time.Now()
+}
+
+// maybePostDailyStandup posts the unified squad standup to Slack once per calendar day.
+// It only fires when the standup store has at least one entry and Slack is configured.
+func (b *Brain) maybePostDailyStandup(ctx context.Context) {
+	if b.notifier == nil || !b.notifier.Enabled() {
+		return
+	}
+	if b.standupStore == nil {
+		return
+	}
+	today := time.Now().UTC().Format("2006-01-02")
+	if b.lastStandupDate == today {
+		return
+	}
+
+	entries, err := b.standupStore.Daily(ctx)
+	if err != nil {
+		b.log.Printf("standup daily read: %v", err)
+		return
+	}
+	if len(entries) == 0 {
+		return // nothing to post yet
+	}
+
+	if err := b.notifier.PostDailyStandup(ctx, entries); err != nil {
+		b.log.Printf("slack standup: %v", err)
+		return
+	}
+	b.lastStandupDate = today
 }
 
 // maybeNotifyConstraintChange fires edge-triggered Slack alerts when driver
