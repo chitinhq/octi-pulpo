@@ -29,6 +29,7 @@ type WebhookServer struct {
 	mux                *http.ServeMux
 	sprintStore        *sprint.Store
 	benchmark          *BenchmarkTracker
+	slackEvents        *SlackEventHandler
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -69,6 +70,18 @@ func (ws *WebhookServer) SetSprintStore(s *sprint.Store) {
 // SetBenchmark enables benchmark HTTP endpoints.
 func (ws *WebhookServer) SetBenchmark(bt *BenchmarkTracker) {
 	ws.benchmark = bt
+}
+
+// SetSlackEvents registers a SlackEventHandler on the /slack/events endpoint.
+// Call after NewWebhookServer; the route is registered lazily on first call.
+func (ws *WebhookServer) SetSlackEvents(h *SlackEventHandler) {
+	ws.slackEvents = h
+	ws.mux.HandleFunc("/slack/events", h.Handle)
+}
+
+// SlackEvents returns the registered SlackEventHandler, or nil if not set.
+func (ws *WebhookServer) SlackEvents() *SlackEventHandler {
+	return ws.slackEvents
 }
 
 // ServeHTTP implements the http.Handler interface.

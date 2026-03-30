@@ -103,6 +103,19 @@ func main() {
 		ws.SetSprintStore(sprintStore)
 		ws.SetBenchmark(benchmark)
 
+		// Wire Slack Events API command handler when credentials are set.
+		if slackSecret := os.Getenv("SLACK_SIGNING_SECRET"); slackSecret != "" {
+			slackBotToken := os.Getenv("SLACK_BOT_TOKEN")
+			evHandler := dispatch.NewSlackEventHandler(slackSecret, slackBotToken, dispatcher)
+			evHandler.SetSprintStore(sprintStore)
+			evHandler.SetBenchmark(benchmark)
+			if slackURL := os.Getenv("SLACK_WEBHOOK_URL"); slackURL != "" {
+				evHandler.SetNotifier(dispatch.NewNotifier(slackURL))
+			}
+			ws.SetSlackEvents(evHandler)
+			fmt.Fprintf(os.Stderr, "octi-pulpo: slack events handler registered on /slack/events\n")
+		}
+
 		// Daemon mode: if OCTI_DAEMON=1 or stdin is not a terminal, run HTTP only (no MCP stdio)
 		daemon := os.Getenv("OCTI_DAEMON") == "1"
 		if !daemon {
@@ -133,6 +146,10 @@ func main() {
 			brain.SetStandupStore(standupStore)
 			if slackURL := os.Getenv("SLACK_WEBHOOK_URL"); slackURL != "" {
 				brain.SetNotifier(dispatch.NewNotifier(slackURL))
+			}
+			// Give the Slack events handler access to the brain for constraint queries.
+			if ws.SlackEvents() != nil {
+				ws.SlackEvents().SetBrain(brain)
 			}
 			go func() {
 				if err := brain.Run(ctx); err != nil && ctx.Err() == nil {
