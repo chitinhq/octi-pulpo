@@ -15,6 +15,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -49,15 +50,16 @@ type RPCError struct {
 
 // Server is the Octi Pulpo MCP server.
 type Server struct {
-	mem         *memory.Store
-	coord       *coordination.Engine
-	router      *routing.Router
-	dispatcher  *dispatch.Dispatcher
-	sprintStore *sprint.Store
-	benchmark   *dispatch.BenchmarkTracker
-	profiles    *dispatch.ProfileStore
-	rdb         *redis.Client
-	redisNS     string
+	mem           *memory.Store
+	coord         *coordination.Engine
+	router        *routing.Router
+	dispatcher    *dispatch.Dispatcher
+	sprintStore   *sprint.Store
+	benchmark     *dispatch.BenchmarkTracker
+	profiles      *dispatch.ProfileStore
+	standupStore  *standup.Store
+	rdb           *redis.Client
+	redisNS       string
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -83,6 +85,11 @@ func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
 // SetProfileStore enables the agent leaderboard MCP tool.
 func (s *Server) SetProfileStore(ps *dispatch.ProfileStore) {
 	s.profiles = ps
+}
+
+// SetStandupStore enables the standup_report and standup_read MCP tools.
+func (s *Server) SetStandupStore(ss *standup.Store) {
+	s.standupStore = ss
 }
 
 // SetRedis enables Redis-backed budget enrichment for the health_report tool.
@@ -445,6 +452,67 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, msg)
 
+	case "standup_report":
+		if s.standupStore == nil {
+			return errorResp(req.ID, -32000, "standup store not initialized")
+		}
+		var args struct {
+			Squad    string   `json:"squad"`
+			Done     []string `json:"done"`
+			Doing    []string `json:"doing"`
+			Blocked  []string `json:"blocked"`
+			Requests []string `json:"requests"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Squad == "" {
+			return errorResp(req.ID, -32602, "squad is required")
+		}
+		r := standup.Report{
+			Squad:    args.Squad,
+			Done:     args.Done,
+			Doing:    args.Doing,
+			Blocked:  args.Blocked,
+			Requests: args.Requests,
+			PostedBy: agentID,
+		}
+		if err := s.standupStore.Post(ctx, r); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf(
+			"Standup posted for squad %s (done: %d, doing: %d, blocked: %d, requests: %d)",
+			args.Squad, len(args.Done), len(args.Doing), len(args.Blocked), len(args.Requests),
+		))
+
+	case "standup_read":
+		if s.standupStore == nil {
+			return errorResp(req.ID, -32000, "standup store not initialized")
+		}
+		var args struct {
+			Squad string `json:"squad"`
+			Date  string `json:"date"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Squad == "all" || args.Squad == "" {
+			reports, err := s.standupStore.ReadAll(ctx, args.Date)
+			if err != nil {
+				return errorResp(req.ID, -32000, err.Error())
+			}
+			if len(reports) == 0 {
+				return textResult(req.ID, "No standups posted yet today.")
+			}
+			data, _ := json.Marshal(reports)
+			return textResult(req.ID, string(data))
+		}
+		r, err := s.standupStore.Read(ctx, args.Squad, args.Date)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if r == nil {
+			return textResult(req.ID, fmt.Sprintf("No standup found for squad %s.", args.Squad))
+		}
+		data, _ := json.Marshal(r)
+		return textResult(req.ID, string(data))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -715,6 +783,32 @@ func toolDefs() []ToolDef {
 					"pr_number":  map[string]interface{}{"type": "number", "description": "PR number if the work resulted in a pull request (optional)"},
 				},
 				"required": []string{"request_id", "result"},
+			},
+		},
+		{
+			Name:        "standup_report",
+			Description: "Post your squad's async standup. Call once per scheduled run. Stored in Redis and aggregated into the daily Slack standup digest.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad":    map[string]string{"type": "string", "description": "Your squad name (e.g. 'kernel', 'octi-pulpo', 'shellforge', 'analytics')"},
+					"done":     map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "What you completed since the last standup (issue numbers, PR links, summaries)"},
+					"doing":    map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "What you are currently working on"},
+					"blocked":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Blockers (issue refs, external deps, waiting-on). Omit or pass empty if unblocked."},
+					"requests": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Cross-squad asks — what you need from other squads"},
+				},
+				"required": []string{"squad", "done", "doing"},
+			},
+		},
+		{
+			Name:        "standup_read",
+			Description: "Read a squad's most recent standup (today by default). Pass squad='all' to get all squads. Lets agents understand cross-squad status before making requests.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad": map[string]string{"type": "string", "description": "Squad name to read (e.g. 'kernel'), or 'all' for every squad that has posted today"},
+					"date":  map[string]string{"type": "string", "description": "Date in YYYY-MM-DD format. Omit for today."},
+				},
 			},
 		},
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 )
 
 // Notifier posts structured notifications to a Slack incoming webhook.
@@ -131,6 +132,52 @@ func (n *Notifier) PostPRReadyAlert(ctx context.Context, repo string, prNumber i
 			slackButton("review_pr", prKey, "Review", ""),
 			slackButton("skip_pr", prKey, "Skip", ""),
 		),
+	}
+
+	return n.postBlocks(ctx, blocks)
+}
+
+// PostDailyStandup sends the aggregated daily standup to Slack as a Block Kit message.
+// Each squad gets one section; traffic-light emoji indicates blocker status.
+func (n *Notifier) PostDailyStandup(ctx context.Context, date string, reports []standup.Report) error {
+	if !n.Enabled() {
+		return nil
+	}
+	if len(reports) == 0 {
+		return nil
+	}
+
+	header := fmt.Sprintf("*📋 Daily Standup — %s*", date)
+	blocks := []map[string]interface{}{blockSection(header)}
+
+	for _, r := range reports {
+		status := "🟢"
+		if len(r.Blocked) > 0 {
+			if len(r.Blocked) >= 2 {
+				status = "🔴"
+			} else {
+				status = "🟡"
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("%s *%s*\n", status, strings.ToUpper(r.Squad)))
+		if len(r.Done) > 0 {
+			sb.WriteString(fmt.Sprintf("  Done: %s\n", strings.Join(r.Done, ", ")))
+		} else {
+			sb.WriteString("  Done: nothing\n")
+		}
+		if len(r.Doing) > 0 {
+			sb.WriteString(fmt.Sprintf("  Doing: %s\n", strings.Join(r.Doing, ", ")))
+		}
+		if len(r.Blocked) > 0 {
+			sb.WriteString(fmt.Sprintf("  Blocked: %s\n", strings.Join(r.Blocked, ", ")))
+		}
+		if len(r.Requests) > 0 {
+			sb.WriteString(fmt.Sprintf("  Requests: %s\n", strings.Join(r.Requests, ", ")))
+		}
+
+		blocks = append(blocks, blockSection(strings.TrimRight(sb.String(), "\n")))
 	}
 
 	return n.postBlocks(ctx, blocks)
