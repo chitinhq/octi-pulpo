@@ -14,6 +14,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 )
 
 // ToolDef describes an MCP tool for the ListTools response.
@@ -47,13 +48,15 @@ type RPCError struct {
 
 // Server is the Octi Pulpo MCP server.
 type Server struct {
-	mem         *memory.Store
-	coord       *coordination.Engine
-	router      *routing.Router
-	dispatcher  *dispatch.Dispatcher
-	sprintStore *sprint.Store
-	benchmark   *dispatch.BenchmarkTracker
-	profiles    *dispatch.ProfileStore
+	mem           *memory.Store
+	coord         *coordination.Engine
+	router        *routing.Router
+	dispatcher    *dispatch.Dispatcher
+	sprintStore   *sprint.Store
+	benchmark     *dispatch.BenchmarkTracker
+	profiles      *dispatch.ProfileStore
+	standupStore  *standup.Store
+	notifier      *dispatch.Notifier
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -79,6 +82,13 @@ func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
 // SetProfileStore enables the agent leaderboard MCP tool.
 func (s *Server) SetProfileStore(ps *dispatch.ProfileStore) {
 	s.profiles = ps
+}
+
+// SetStandupStore enables the standup_report and standup_read MCP tools.
+// If notifier is non-nil, standup_report will post the aggregated standup to Slack.
+func (s *Server) SetStandupStore(ss *standup.Store, notifier *dispatch.Notifier) {
+	s.standupStore = ss
+	s.notifier = notifier
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -428,6 +438,68 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, msg)
 
+	case "standup_report":
+		if s.standupStore == nil {
+			return errorResp(req.ID, -32000, "standup store not initialized")
+		}
+		var args struct {
+			Squad    string   `json:"squad"`
+			Done     []string `json:"done"`
+			Doing    []string `json:"doing"`
+			Blocked  []string `json:"blocked"`
+			Requests []string `json:"requests"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Squad == "" {
+			return errorResp(req.ID, -32602, "squad is required")
+		}
+		report, err := s.standupStore.Put(ctx, args.Squad, agentID, args.Done, args.Doing, args.Blocked, args.Requests)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+
+		msg := fmt.Sprintf("Standup filed for squad %s (%s). Status: %s",
+			report.Squad, report.Timestamp, standup.StatusOf(report))
+
+		// Post unified standup to Slack if notifier is configured.
+		if s.notifier != nil && s.notifier.Enabled() {
+			all, err := s.standupStore.GetAllToday(ctx)
+			if err == nil {
+				if slackErr := s.notifier.PostStandup(ctx, all); slackErr != nil {
+					fmt.Fprintf(os.Stderr, "standup slack post: %v\n", slackErr)
+				}
+			}
+		}
+		return textResult(req.ID, msg)
+
+	case "standup_read":
+		if s.standupStore == nil {
+			return errorResp(req.ID, -32000, "standup store not initialized")
+		}
+		var args struct {
+			Squad string `json:"squad"`
+			Date  string `json:"date"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Squad == "" {
+			return errorResp(req.ID, -32602, "squad is required")
+		}
+		var report *standup.Report
+		var err error
+		if args.Date != "" {
+			report, err = s.standupStore.Get(ctx, args.Squad, args.Date)
+		} else {
+			report, err = s.standupStore.GetToday(ctx, args.Squad)
+		}
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if report == nil {
+			return textResult(req.ID, fmt.Sprintf("No standup found for squad %s today.", args.Squad))
+		}
+		data, _ := json.Marshal(report)
+		return textResult(req.ID, string(data))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -677,6 +749,33 @@ func toolDefs() []ToolDef {
 					"pr_number":  map[string]interface{}{"type": "number", "description": "PR number if the work resulted in a pull request (optional)"},
 				},
 				"required": []string{"request_id", "result"},
+			},
+		},
+		{
+			Name:        "standup_report",
+			Description: "Post your squad's async standup. Stores done/doing/blocked/requests in Redis and triggers a unified Slack standup post with all squads that have reported today.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad":    map[string]string{"type": "string", "description": "Your squad name (e.g. 'kernel', 'octi-pulpo', 'shellforge')"},
+					"done":     map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "What your squad completed since the last standup"},
+					"doing":    map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "What your squad is currently working on"},
+					"blocked":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Blockers — issue numbers, dependencies, or external waits"},
+					"requests": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Requests to other squads or the CTO"},
+				},
+				"required": []string{"squad"},
+			},
+		},
+		{
+			Name:        "standup_read",
+			Description: "Read another squad's standup report. Returns done/doing/blocked/requests and status (GREEN/YELLOW/RED). Defaults to today's report.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad": map[string]string{"type": "string", "description": "Squad name to read (e.g. 'analytics', 'kernel')"},
+					"date":  map[string]string{"type": "string", "description": "Date to read (YYYY-MM-DD). Defaults to today."},
+				},
+				"required": []string{"squad"},
 			},
 		},
 	}

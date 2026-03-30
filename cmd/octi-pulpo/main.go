@@ -12,6 +12,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -83,11 +84,19 @@ func main() {
 	// Set up benchmark tracker
 	benchmark := dispatch.NewBenchmarkTracker(rdb, namespace)
 
+	standupStore := standup.New(rdb, namespace)
+
+	var standupNotifier *dispatch.Notifier
+	if slackURL := os.Getenv("SLACK_WEBHOOK_URL"); slackURL != "" {
+		standupNotifier = dispatch.NewNotifier(slackURL)
+	}
+
 	server := mcp.New(mem, coord, router)
 	server.SetDispatcher(dispatcher)
 	server.SetSprintStore(sprintStore)
 	server.SetBenchmark(benchmark)
 	server.SetProfileStore(profiles)
+	server.SetStandupStore(standupStore, standupNotifier)
 
 	// Optional HTTP mode: run webhook server alongside MCP
 	httpPort := os.Getenv("OCTI_HTTP_PORT")

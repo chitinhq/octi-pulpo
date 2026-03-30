@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 )
 
 // Notifier posts structured notifications to a Slack incoming webhook.
@@ -154,6 +156,70 @@ func (n *Notifier) PostSprintGoalAlert(ctx context.Context, squad, goal string) 
 	}
 
 	return n.postBlocks(ctx, blocks)
+}
+
+// PostStandup posts the unified daily standup for all squads that have
+// reported today. Squads are sorted alphabetically for a stable layout.
+// The optional [Reprioritize] button lets the CTO act directly from Slack.
+func (n *Notifier) PostStandup(ctx context.Context, reports map[string]*standup.Report) error {
+	if !n.Enabled() {
+		return nil
+	}
+	if len(reports) == 0 {
+		return nil
+	}
+
+	date := time.Now().UTC().Format("2006-01-02")
+	header := fmt.Sprintf("*📋 Daily Standup — %s*  (%d squads reported)", date, len(reports))
+
+	// Sort squads for a stable order.
+	squads := make([]string, 0, len(reports))
+	for sq := range reports {
+		squads = append(squads, sq)
+	}
+	sort.Strings(squads)
+
+	var body strings.Builder
+	for _, sq := range squads {
+		r := reports[sq]
+		status := standup.StatusOf(r)
+		icon := statusIcon(status)
+
+		body.WriteString(fmt.Sprintf("\n%s *%s* (%s)\n", icon, strings.Title(sq), status))
+
+		if len(r.Done) > 0 {
+			body.WriteString(fmt.Sprintf("  ✅ Done: %s\n", strings.Join(r.Done, " · ")))
+		}
+		if len(r.Doing) > 0 {
+			body.WriteString(fmt.Sprintf("  🔨 Doing: %s\n", strings.Join(r.Doing, " · ")))
+		}
+		if len(r.Blocked) > 0 {
+			body.WriteString(fmt.Sprintf("  🚧 Blocked: %s\n", strings.Join(r.Blocked, " · ")))
+		}
+		if len(r.Requests) > 0 {
+			body.WriteString(fmt.Sprintf("  📥 Requests: %s\n", strings.Join(r.Requests, " · ")))
+		}
+	}
+
+	blocks := []map[string]interface{}{
+		blockSection(header),
+		blockSection(body.String()),
+		blockActions(
+			slackButton("standup_reprioritize", date, "Reprioritize", "primary"),
+		),
+	}
+	return n.postBlocks(ctx, blocks)
+}
+
+func statusIcon(s standup.Status) string {
+	switch s {
+	case standup.StatusGreen:
+		return "🟢"
+	case standup.StatusYellow:
+		return "🟡"
+	default:
+		return "🔴"
+	}
 }
 
 // postBlocks sends a Slack Block Kit payload to the webhook URL.
