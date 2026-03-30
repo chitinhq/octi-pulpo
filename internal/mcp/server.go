@@ -364,6 +364,88 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, strings.Join(synced, "\n"))
 
+	case "sprint_reprioritize":
+		if s.sprintStore == nil {
+			return errorResp(req.ID, -32000, "sprint store not initialized")
+		}
+		var args struct {
+			Repo     string `json:"repo"`
+			IssueNum int    `json:"issue_num"`
+			Priority int    `json:"priority"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.IssueNum == 0 {
+			return errorResp(req.ID, -32602, "issue_num is required")
+		}
+		if args.Repo == "" {
+			// Search all default repos
+			found := false
+			for _, repo := range sprint.DefaultRepos {
+				if err := s.sprintStore.Reprioritize(ctx, repo, args.IssueNum, args.Priority); err == nil {
+					args.Repo = repo
+					found = true
+					break
+				}
+			}
+			if !found {
+				return errorResp(req.ID, -32000, fmt.Sprintf("issue #%d not found in any sprint repo", args.IssueNum))
+			}
+		} else {
+			if err := s.sprintStore.Reprioritize(ctx, args.Repo, args.IssueNum, args.Priority); err != nil {
+				return errorResp(req.ID, -32000, err.Error())
+			}
+		}
+		priorityLabel := [3]string{"P0 (critical)", "P1 (high)", "P2 (normal)"}
+		label := "custom"
+		if args.Priority >= 0 && args.Priority <= 2 {
+			label = priorityLabel[args.Priority]
+		}
+		return textResult(req.ID, fmt.Sprintf("%s#%d reprioritized to %s", args.Repo, args.IssueNum, label))
+
+	case "sprint_complete":
+		if s.sprintStore == nil {
+			return errorResp(req.ID, -32000, "sprint store not initialized")
+		}
+		var args struct {
+			Repo     string `json:"repo"`
+			IssueNum int    `json:"issue_num"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.IssueNum == 0 {
+			return errorResp(req.ID, -32602, "issue_num is required")
+		}
+		if args.Repo == "" {
+			for _, repo := range sprint.DefaultRepos {
+				unblocked, err := s.sprintStore.Complete(ctx, repo, args.IssueNum)
+				if err == nil {
+					args.Repo = repo
+					msg := fmt.Sprintf("%s#%d marked done", repo, args.IssueNum)
+					if len(unblocked) > 0 {
+						nums := make([]string, len(unblocked))
+						for i, n := range unblocked {
+							nums[i] = fmt.Sprintf("#%d", n)
+						}
+						msg += fmt.Sprintf("; unblocked: %s", strings.Join(nums, ", "))
+					}
+					return textResult(req.ID, msg)
+				}
+			}
+			return errorResp(req.ID, -32000, fmt.Sprintf("issue #%d not found in any sprint repo", args.IssueNum))
+		}
+		unblocked, err := s.sprintStore.Complete(ctx, args.Repo, args.IssueNum)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		msg := fmt.Sprintf("%s#%d marked done", args.Repo, args.IssueNum)
+		if len(unblocked) > 0 {
+			nums := make([]string, len(unblocked))
+			for i, n := range unblocked {
+				nums[i] = fmt.Sprintf("#%d", n)
+			}
+			msg += fmt.Sprintf("; unblocked: %s", strings.Join(nums, ", "))
+		}
+		return textResult(req.ID, msg)
+
 	case "benchmark_status":
 		if s.benchmark == nil {
 			return errorResp(req.ID, -32000, "benchmark tracker not initialized")
@@ -660,6 +742,31 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "sprint_reprioritize",
+			Description: "Change the priority of a sprint item. Use when the CTO says 'make this P0' or 'deprioritize this'. Affects dispatch order — P0 items are dispatched before P1/P2.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"issue_num": map[string]interface{}{"type": "number", "description": "GitHub issue number to reprioritize"},
+					"priority":  map[string]interface{}{"type": "number", "enum": []int{0, 1, 2}, "description": "New priority: 0=P0 critical, 1=P1 high, 2=P2 normal"},
+					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo). If omitted, all tracked repos are searched."},
+				},
+				"required": []string{"issue_num", "priority"},
+			},
+		},
+		{
+			Name:        "sprint_complete",
+			Description: "Mark a sprint item as done. Unblocks any dependent items. Call after merging a PR or closing an issue outside of the normal sync cycle.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"issue_num": map[string]interface{}{"type": "number", "description": "GitHub issue number to mark done"},
+					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo). If omitted, all tracked repos are searched."},
+				},
+				"required": []string{"issue_num"},
 			},
 		},
 		{

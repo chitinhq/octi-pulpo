@@ -503,6 +503,82 @@ func (s *Store) markClosedItems(ctx context.Context, repo string, issueNums []in
 	return marked
 }
 
+// Reprioritize updates the priority of a sprint item identified by repo + issue number.
+// priority: 0=P0 (critical), 1=P1 (high), 2=P2 (normal).
+// Returns an error if the item is not found.
+func (s *Store) Reprioritize(ctx context.Context, repo string, issueNum int, priority int) error {
+	key := s.itemKey(repo, issueNum)
+	raw, err := s.rdb.Get(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("sprint item %s#%d not found: %w", repo, issueNum, err)
+	}
+
+	var item SprintItem
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return fmt.Errorf("parse sprint item: %w", err)
+	}
+
+	item.Priority = priority
+	item.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	data, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+
+	return s.rdb.Set(ctx, key, data, 0).Err()
+}
+
+// Complete marks a sprint item as "done" and returns the issue numbers of any
+// items that are now unblocked (i.e. were waiting on this item as a dependency).
+func (s *Store) Complete(ctx context.Context, repo string, issueNum int) (unblocked []int, err error) {
+	if err := s.UpdateStatus(ctx, repo, issueNum, "done"); err != nil {
+		return nil, err
+	}
+
+	// Find items whose DependsOn list includes this issue number and are now fully unblocked.
+	all, err := s.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	doneSet := make(map[int]bool)
+	for _, item := range all {
+		if item.Status == "done" {
+			doneSet[item.IssueNum] = true
+		}
+	}
+
+	for _, item := range all {
+		if item.Status != "open" {
+			continue
+		}
+		dependsOnCompleted := false
+		for _, dep := range item.DependsOn {
+			if dep == issueNum {
+				dependsOnCompleted = true
+				break
+			}
+		}
+		if !dependsOnCompleted {
+			continue
+		}
+		// Check all deps are now met
+		allMet := true
+		for _, dep := range item.DependsOn {
+			if !doneSet[dep] {
+				allMet = false
+				break
+			}
+		}
+		if allMet {
+			unblocked = append(unblocked, item.IssueNum)
+		}
+	}
+
+	return unblocked, nil
+}
+
 func (s *Store) itemKey(repo string, issueNum int) string {
 	return s.namespace + ":sprint:" + repo + ":" + strconv.Itoa(issueNum)
 }
