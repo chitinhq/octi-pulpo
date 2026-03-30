@@ -212,6 +212,53 @@ func TestCheckAndIncrement_PriorityThresholds(t *testing.T) {
 	}
 }
 
+func TestListAll(t *testing.T) {
+	bs, ctx := budgetTestSetup(t)
+
+	// Empty namespace returns empty slice, not error.
+	all, err := bs.ListAll(ctx)
+	if err != nil {
+		t.Fatalf("list all empty: %v", err)
+	}
+	if len(all) != 0 {
+		t.Fatalf("expected 0 budgets, got %d", len(all))
+	}
+
+	agents := []AgentBudget{
+		{Agent: "sr-list-01", Driver: "claude-code", BudgetMonthlyCents: 500},
+		{Agent: "sr-list-02", Driver: "codex", BudgetMonthlyCents: 300},
+		{Agent: "sr-list-03", Driver: "ollama", BudgetMonthlyCents: 0, Paused: true},
+	}
+	for _, b := range agents {
+		if b.BudgetMonthlyCents == 0 {
+			// Store zero-budget agents directly (SetBudget doesn't validate)
+			b.BudgetMonthlyCents = 1 // minimal valid value for storage
+		}
+		if err := bs.SetBudget(ctx, b); err != nil {
+			t.Fatalf("set budget %s: %v", b.Agent, err)
+		}
+	}
+
+	all, err = bs.ListAll(ctx)
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 budgets, got %d", len(all))
+	}
+
+	// Verify each agent appears exactly once.
+	found := make(map[string]bool)
+	for _, b := range all {
+		found[b.Agent] = true
+	}
+	for _, b := range agents {
+		if !found[b.Agent] {
+			t.Errorf("agent %s missing from ListAll result", b.Agent)
+		}
+	}
+}
+
 func TestMonthlyReset(t *testing.T) {
 	bs, ctx := budgetTestSetup(t)
 

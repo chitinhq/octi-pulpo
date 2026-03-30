@@ -599,6 +599,82 @@ func (s *Server) handleToolCall(req Request) Response {
 		return textResult(req.ID, string(data))
 
 
+	case "budget_status":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args struct {
+			Agent string `json:"agent"` // optional; omit for all agents
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Agent != "" {
+			b, err := s.budgetStore.GetBudget(ctx, args.Agent)
+			if err != nil {
+				return errorResp(req.ID, -32000, err.Error())
+			}
+			data, _ := json.Marshal(b)
+			return textResult(req.ID, string(data))
+		}
+		all, err := s.budgetStore.ListAll(ctx)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if len(all) == 0 {
+			return textResult(req.ID, "No agent budgets configured.")
+		}
+		data, _ := json.Marshal(all)
+		return textResult(req.ID, string(data))
+
+	case "budget_set":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args struct {
+			Agent              string `json:"agent"`
+			Driver             string `json:"driver"`
+			Box                string `json:"box"`
+			BudgetMonthlyCents int    `json:"budget_monthly_cents"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Agent == "" {
+			return errorResp(req.ID, -32602, "agent is required")
+		}
+		if args.BudgetMonthlyCents <= 0 {
+			return errorResp(req.ID, -32602, "budget_monthly_cents must be > 0")
+		}
+		// Merge into existing record to preserve accumulated spent/runs.
+		existing, err := s.budgetStore.GetBudget(ctx, args.Agent)
+		if err != nil {
+			existing = budget.AgentBudget{Agent: args.Agent}
+		}
+		existing.BudgetMonthlyCents = args.BudgetMonthlyCents
+		if args.Driver != "" {
+			existing.Driver = args.Driver
+		}
+		if args.Box != "" {
+			existing.Box = args.Box
+		}
+		if err := s.budgetStore.SetBudget(ctx, existing); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf("Budget set for %s: $%.2f/month (driver: %s)", args.Agent, float64(args.BudgetMonthlyCents)/100, existing.Driver))
+
+	case "budget_reset":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args struct {
+			Agent string `json:"agent"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Agent == "" {
+			return errorResp(req.ID, -32602, "agent is required")
+		}
+		if err := s.budgetStore.MonthlyReset(ctx, args.Agent); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf("Budget reset for %s: spent zeroed, unpaused", args.Agent))
+
 	case "org_chart":
 		if s.orgStore == nil {
 			return errorResp(req.ID, -32000, "org store not initialized")
@@ -819,12 +895,13 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "dispatch_trigger",
-			Description: "Manually trigger an agent run. Bypasses event matching but still respects cooldown and coordination claims.",
+			Description: "Manually trigger an agent run. Bypasses event matching but still respects cooldown and coordination claims. Pass budget to override the automatic dynamic budget level.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"agent":    map[string]string{"type": "string", "description": "Agent name to trigger"},
 					"priority": map[string]interface{}{"type": "number", "description": "Priority (0=critical, 1=high, 2=normal, 3=background). Default: 1"},
+					"budget":   map[string]interface{}{"type": "string", "enum": []string{"low", "medium", "high"}, "description": "Budget tier override — low (local only), medium (local+subscription+cli), high (all tiers including API). Omit to use the automatic dynamic budget derived from current driver health."},
 				},
 				"required": []string{"agent"},
 			},
@@ -897,6 +974,41 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "budget_status",
+			Description: "Show per-agent monthly budget: limit, spent, runs, last run, and whether the agent is paused. Omit agent to list all configured budgets.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent": map[string]string{"type": "string", "description": "Agent name. Omit to return all agent budgets."},
+				},
+			},
+		},
+		{
+			Name:        "budget_set",
+			Description: "Provision or update an agent's monthly budget. Preserves accumulated spent/runs — only updates the limit and optional driver/box metadata. Call this to unblock a new agent that has no budget record yet (required before first dispatch).",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent":                map[string]string{"type": "string", "description": "Agent name"},
+					"budget_monthly_cents": map[string]interface{}{"type": "number", "description": "Monthly budget cap in cents (e.g. 770 = $7.70/month)"},
+					"driver":               map[string]string{"type": "string", "description": "Driver the agent uses (e.g. claude-code, codex). Optional."},
+					"box":                  map[string]string{"type": "string", "description": "Host box the agent runs on. Optional."},
+				},
+				"required": []string{"agent", "budget_monthly_cents"},
+			},
+		},
+		{
+			Name:        "budget_reset",
+			Description: "Monthly budget reset for an agent: zeroes spent amount and run count, clears the paused flag. Use at the start of each billing cycle or to manually unblock a paused agent.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent": map[string]string{"type": "string", "description": "Agent name to reset"},
+				},
+				"required": []string{"agent"},
 			},
 		},
 		{
