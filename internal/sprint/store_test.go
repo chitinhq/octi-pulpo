@@ -369,6 +369,100 @@ func TestMarkClosedItems_EmptyList(t *testing.T) {
 	}
 }
 
+func TestStore_Reprioritize(t *testing.T) {
+	s, ctx := testStore(t)
+
+	repo := "AgentGuardHQ/octi-pulpo"
+	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
+
+	item := SprintItem{
+		Squad: "octi-pulpo", IssueNum: 44, Repo: repo,
+		Title: "Async standups", Priority: 2, Status: "open",
+	}
+	data, _ := json.Marshal(item)
+	s.rdb.Set(ctx, s.itemKey(repo, 44), data, 0)
+
+	if err := s.Reprioritize(ctx, repo, 44, 0); err != nil {
+		t.Fatalf("reprioritize: %v", err)
+	}
+
+	all, _ := s.GetAll(ctx)
+	if len(all) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(all))
+	}
+	if all[0].Priority != 0 {
+		t.Fatalf("expected priority 0, got %d", all[0].Priority)
+	}
+}
+
+func TestStore_Reprioritize_NotFound(t *testing.T) {
+	s, ctx := testStore(t)
+
+	err := s.Reprioritize(ctx, "AgentGuardHQ/octi-pulpo", 9999, 0)
+	if err == nil {
+		t.Fatal("expected error for missing item, got nil")
+	}
+}
+
+func TestStore_Complete_NoDepedents(t *testing.T) {
+	s, ctx := testStore(t)
+
+	repo := "AgentGuardHQ/octi-pulpo"
+	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
+
+	item := SprintItem{
+		Squad: "octi-pulpo", IssueNum: 10, Repo: repo,
+		Title: "Solo item", Priority: 1, Status: "open",
+	}
+	data, _ := json.Marshal(item)
+	s.rdb.Set(ctx, s.itemKey(repo, 10), data, 0)
+
+	unblocked, err := s.Complete(ctx, repo, 10)
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if len(unblocked) != 0 {
+		t.Fatalf("expected 0 unblocked, got %d: %v", len(unblocked), unblocked)
+	}
+
+	all, _ := s.GetAll(ctx)
+	if all[0].Status != "done" {
+		t.Fatalf("expected done, got %s", all[0].Status)
+	}
+}
+
+func TestStore_Complete_UnblocksDependent(t *testing.T) {
+	s, ctx := testStore(t)
+
+	repo := "AgentGuardHQ/octi-pulpo"
+	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
+
+	// Item 10: the blocker; item 20: depends on 10; item 30: depends on 10 AND 40 (not done)
+	items := []SprintItem{
+		{Squad: "octi-pulpo", IssueNum: 10, Repo: repo, Title: "Blocker", Priority: 0, Status: "open"},
+		{Squad: "octi-pulpo", IssueNum: 20, Repo: repo, Title: "Waiting on 10", Priority: 1, Status: "open", DependsOn: []int{10}},
+		{Squad: "octi-pulpo", IssueNum: 30, Repo: repo, Title: "Waiting on 10+40", Priority: 1, Status: "open", DependsOn: []int{10, 40}},
+		{Squad: "octi-pulpo", IssueNum: 40, Repo: repo, Title: "Other blocker", Priority: 0, Status: "open"},
+	}
+	for _, item := range items {
+		data, _ := json.Marshal(item)
+		s.rdb.Set(ctx, s.itemKey(repo, item.IssueNum), data, 0)
+	}
+
+	unblocked, err := s.Complete(ctx, repo, 10)
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	// Only item 20 should be unblocked (item 30 still needs #40)
+	if len(unblocked) != 1 {
+		t.Fatalf("expected 1 unblocked, got %d: %v", len(unblocked), unblocked)
+	}
+	if unblocked[0] != 20 {
+		t.Fatalf("expected issue #20 unblocked, got #%d", unblocked[0])
+	}
+}
+
 func TestInferSquadFromRepo(t *testing.T) {
 	tests := []struct {
 		repo  string
