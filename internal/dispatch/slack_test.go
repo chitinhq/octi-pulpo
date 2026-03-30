@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
 func TestNotifier_Enabled(t *testing.T) {
@@ -144,6 +145,168 @@ func TestNotifier_WebhookError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected 500 in error, got: %v", err)
+	}
+}
+
+func TestNotifier_PostSprintDigest_NoopWhenDisabled(t *testing.T) {
+	ctx := context.Background()
+	n := NewNotifier("")
+	err := n.PostSprintDigest(ctx, nil, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("PostSprintDigest on disabled notifier: %v", err)
+	}
+}
+
+func TestNotifier_PostSprintDigest_Basic(t *testing.T) {
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	n := NewNotifier(srv.URL)
+
+	drivers := []routing.DriverHealth{
+		{Name: "claude-code", CircuitState: "CLOSED", Failures: 0},
+		{Name: "codex", CircuitState: "OPEN", Failures: 73},
+	}
+	items := []sprint.SprintItem{
+		{IssueNum: 1, Repo: "AgentGuardHQ/octi-pulpo", Title: "feat A", Status: "done", Priority: 0},
+		{IssueNum: 2, Repo: "AgentGuardHQ/octi-pulpo", Title: "feat B", Status: "open", Priority: 1},
+		{IssueNum: 3, Repo: "AgentGuardHQ/octi-pulpo", Title: "feat C", Status: "pr_open", PRNumber: 42, Priority: 1},
+	}
+
+	if err := n.PostSprintDigest(ctx, drivers, 90, 10, items); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(received, &payload); err != nil {
+		t.Fatalf("invalid JSON payload: %v", err)
+	}
+	text, _ := payload["text"].(string)
+
+	checks := []struct {
+		want string
+		desc string
+	}{
+		{"Sprint Digest", "header"},
+		{"90.0%", "pass rate"},
+		{"claude-code", "driver name"},
+		{"codex", "driver name"},
+		{"73 failures", "failure count"},
+		{"Done: 1", "done count"},
+		{"PR Open: 1", "pr_open count"},
+		{"Open: 1", "open count"},
+		{"feat C", "PR item title"},
+		{"#42", "PR number"},
+	}
+	for _, c := range checks {
+		if !strings.Contains(text, c.want) {
+			t.Errorf("expected %q (%s) in digest text, got:\n%s", c.want, c.desc, text)
+		}
+	}
+}
+
+func TestNotifier_PostSprintDigest_ShowsBlockers(t *testing.T) {
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	n := NewNotifier(srv.URL)
+
+	// Item 20 depends on item 10, which is still open → blocker
+	items := []sprint.SprintItem{
+		{IssueNum: 10, Repo: "AgentGuardHQ/octi-pulpo", Title: "dep item", Status: "open", Priority: 1},
+		{IssueNum: 20, Repo: "AgentGuardHQ/octi-pulpo", Title: "blocked item", Status: "open", Priority: 2, DependsOn: []int{10}},
+	}
+
+	if err := n.PostSprintDigest(ctx, nil, 0, 0, items); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(received, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	text, _ := payload["text"].(string)
+
+	if !strings.Contains(text, "Blockers") {
+		t.Errorf("expected 'Blockers' section in digest, got:\n%s", text)
+	}
+	if !strings.Contains(text, "blocked item") {
+		t.Errorf("expected blocked item title in digest, got:\n%s", text)
+	}
+	if !strings.Contains(text, "#10") {
+		t.Errorf("expected dependency #10 listed, got:\n%s", text)
+	}
+}
+
+func TestNotifier_PostSprintDigest_NoBlockersWhenDepDone(t *testing.T) {
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	n := NewNotifier(srv.URL)
+
+	// Item 20 depends on item 10, which is done → not a blocker
+	items := []sprint.SprintItem{
+		{IssueNum: 10, Repo: "AgentGuardHQ/octi-pulpo", Title: "dep item", Status: "done", Priority: 0},
+		{IssueNum: 20, Repo: "AgentGuardHQ/octi-pulpo", Title: "unblocked item", Status: "open", Priority: 1, DependsOn: []int{10}},
+	}
+
+	if err := n.PostSprintDigest(ctx, nil, 0, 0, items); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(received, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	text, _ := payload["text"].(string)
+	if strings.Contains(text, "Blockers") {
+		t.Errorf("expected no 'Blockers' section when dep is done, got:\n%s", text)
+	}
+}
+
+func TestNotifier_PostSprintDigest_EmptyItems(t *testing.T) {
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	n := NewNotifier(srv.URL)
+
+	drivers := []routing.DriverHealth{
+		{Name: "claude-code", CircuitState: "CLOSED"},
+	}
+	if err := n.PostSprintDigest(ctx, drivers, 50, 50, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(received, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	text, _ := payload["text"].(string)
+	if !strings.Contains(text, "Sprint Digest") {
+		t.Errorf("expected Sprint Digest header with no items, got:\n%s", text)
+	}
+	if strings.Contains(text, "Sprint:") {
+		t.Errorf("expected no Sprint: line when items is nil, got:\n%s", text)
 	}
 }
 
