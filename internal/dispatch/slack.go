@@ -156,6 +156,14 @@ func (n *Notifier) PostSprintGoalAlert(ctx context.Context, squad, goal string) 
 	return n.postBlocks(ctx, blocks)
 }
 
+// PostText sends a plain-text mrkdwn message to the Slack webhook.
+func (n *Notifier) PostText(ctx context.Context, text string) error {
+	if !n.Enabled() {
+		return nil
+	}
+	return n.post(ctx, map[string]interface{}{"text": text})
+}
+
 // postBlocks sends a Slack Block Kit payload to the webhook URL.
 func (n *Notifier) postBlocks(ctx context.Context, blocks []map[string]interface{}) error {
 	return n.post(ctx, map[string]interface{}{"blocks": blocks})

@@ -15,6 +15,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -49,15 +50,17 @@ type RPCError struct {
 
 // Server is the Octi Pulpo MCP server.
 type Server struct {
-	mem         *memory.Store
-	coord       *coordination.Engine
-	router      *routing.Router
-	dispatcher  *dispatch.Dispatcher
-	sprintStore *sprint.Store
-	benchmark   *dispatch.BenchmarkTracker
-	profiles    *dispatch.ProfileStore
-	rdb         *redis.Client
-	redisNS     string
+	mem          *memory.Store
+	coord        *coordination.Engine
+	router       *routing.Router
+	dispatcher   *dispatch.Dispatcher
+	sprintStore  *sprint.Store
+	benchmark    *dispatch.BenchmarkTracker
+	profiles     *dispatch.ProfileStore
+	standupStore *standup.Store
+	notifier     *dispatch.Notifier
+	rdb          *redis.Client
+	redisNS      string
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -83,6 +86,16 @@ func (s *Server) SetBenchmark(bt *dispatch.BenchmarkTracker) {
 // SetProfileStore enables the agent leaderboard MCP tool.
 func (s *Server) SetProfileStore(ps *dispatch.ProfileStore) {
 	s.profiles = ps
+}
+
+// SetStandupStore enables standup_report and standup_read MCP tools.
+func (s *Server) SetStandupStore(ss *standup.Store) {
+	s.standupStore = ss
+}
+
+// SetNotifier enables Slack posting from MCP tools (e.g. daily standup digest).
+func (s *Server) SetNotifier(n *dispatch.Notifier) {
+	s.notifier = n
 }
 
 // SetRedis enables Redis-backed budget enrichment for the health_report tool.
@@ -445,6 +458,69 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, msg)
 
+	case "standup_report":
+		if s.standupStore == nil {
+			return errorResp(req.ID, -32000, "standup store not initialized")
+		}
+		var args struct {
+			Squad    string   `json:"squad"`
+			Done     []string `json:"done"`
+			Doing    []string `json:"doing"`
+			Blocked  []string `json:"blocked"`
+			Requests []string `json:"requests"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Squad == "" {
+			return errorResp(req.ID, -32602, "squad is required")
+		}
+		if err := s.standupStore.Report(ctx, args.Squad, agentID, args.Done, args.Doing, args.Blocked, args.Requests); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		msg := fmt.Sprintf("Standup filed for squad %q by %s", args.Squad, agentID)
+		if len(args.Blocked) > 0 {
+			msg += fmt.Sprintf(" — %d blocker(s) noted", len(args.Blocked))
+		}
+		// Post unified digest to Slack whenever any standup is filed
+		if s.notifier != nil {
+			today := time.Now().UTC().Format("2006-01-02")
+			if entries, err := s.standupStore.ReadToday(ctx); err == nil {
+				_ = s.notifier.PostText(ctx, standup.FormatSlack(today, entries))
+			}
+		}
+		return textResult(req.ID, msg)
+
+	case "standup_read":
+		if s.standupStore == nil {
+			return errorResp(req.ID, -32000, "standup store not initialized")
+		}
+		var args struct {
+			Squad string `json:"squad"`
+			Date  string `json:"date"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		today := time.Now().UTC().Format("2006-01-02")
+		date := args.Date
+		if date == "" {
+			date = today
+		}
+		if args.Squad != "" {
+			entry, err := s.standupStore.Read(ctx, args.Squad, date)
+			if err != nil {
+				return errorResp(req.ID, -32000, err.Error())
+			}
+			if entry == nil {
+				return textResult(req.ID, fmt.Sprintf("No standup filed for squad %q on %s.", args.Squad, date))
+			}
+			data, _ := json.Marshal(entry)
+			return textResult(req.ID, string(data))
+		}
+		// No squad specified — return all squads for the date
+		entries, err := s.standupStore.ReadDate(ctx, date)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, standup.FormatSlack(date, entries))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -715,6 +791,32 @@ func toolDefs() []ToolDef {
 					"pr_number":  map[string]interface{}{"type": "number", "description": "PR number if the work resulted in a pull request (optional)"},
 				},
 				"required": []string{"request_id", "result"},
+			},
+		},
+		{
+			Name:        "standup_report",
+			Description: "Post your squad's async standup — done, doing, blocked, requests. Stored in Redis and triggers a unified Slack digest. Call at the start of each scheduled run.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad":    map[string]string{"type": "string", "description": "Your squad name (e.g. 'kernel', 'octi-pulpo', 'shellforge')"},
+					"done":     map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "What your squad completed since the last standup"},
+					"doing":    map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "What your squad is actively working on now"},
+					"blocked":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Blockers — issues, dependencies, or requests that are stuck"},
+					"requests": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Things you need from other squads or the CTO"},
+				},
+				"required": []string{"squad"},
+			},
+		},
+		{
+			Name:        "standup_read",
+			Description: "Read async standup reports. Omit squad to get all squads for the day as a formatted digest. Pass squad name to get a specific squad's raw entry. Optionally pass date (YYYY-MM-DD) for historical lookups.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"squad": map[string]string{"type": "string", "description": "Squad name to read. Omit to get all squads' standups for the date."},
+					"date":  map[string]string{"type": "string", "description": "Date in YYYY-MM-DD format. Defaults to today (UTC)."},
+				},
 			},
 		},
 	}
