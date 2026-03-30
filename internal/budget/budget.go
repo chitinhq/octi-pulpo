@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -173,6 +174,56 @@ func (bs *BudgetStore) MonthlyReset(ctx context.Context, agent string) error {
 	budget.Paused = false
 
 	return bs.SetBudget(ctx, budget)
+}
+
+// ListAll returns all budget records stored in this namespace.
+func (bs *BudgetStore) ListAll(ctx context.Context) ([]AgentBudget, error) {
+	pattern := bs.namespace + ":budget:*"
+	keys, err := bs.rdb.Keys(ctx, pattern).Result()
+	if err != nil {
+		return nil, fmt.Errorf("list budget keys: %w", err)
+	}
+	budgets := make([]AgentBudget, 0, len(keys))
+	for _, k := range keys {
+		raw, err := bs.rdb.Get(ctx, k).Result()
+		if err != nil {
+			continue // key may have disappeared between KEYS and GET
+		}
+		var b AgentBudget
+		if json.Unmarshal([]byte(raw), &b) != nil {
+			continue
+		}
+		budgets = append(budgets, b)
+	}
+	return budgets, nil
+}
+
+// UpsertBudget updates an agent's budget configuration while preserving runtime
+// state (spent, runs, last_run_at, paused). Creates a new record if none exists.
+func (bs *BudgetStore) UpsertBudget(ctx context.Context, update AgentBudget) (AgentBudget, error) {
+	existing, err := bs.GetBudget(ctx, update.Agent)
+	if err != nil {
+		if !errors.Is(err, redis.Nil) {
+			return AgentBudget{}, fmt.Errorf("upsert budget for %s: %w", update.Agent, err)
+		}
+		// No existing record — create fresh.
+		if err2 := bs.SetBudget(ctx, update); err2 != nil {
+			return AgentBudget{}, err2
+		}
+		return update, nil
+	}
+	// Merge: overwrite config fields, preserve runtime state.
+	existing.BudgetMonthlyCents = update.BudgetMonthlyCents
+	if update.Driver != "" {
+		existing.Driver = update.Driver
+	}
+	if update.Box != "" {
+		existing.Box = update.Box
+	}
+	if err2 := bs.SetBudget(ctx, existing); err2 != nil {
+		return AgentBudget{}, err2
+	}
+	return existing, nil
 }
 
 // key returns a namespaced Redis key for agent budgets.

@@ -225,6 +225,78 @@ func TestCheckAndIncrement_PriorityThresholds(t *testing.T) {
 	}
 }
 
+func TestListAll(t *testing.T) {
+	bs, ctx := budgetTestSetup(t)
+
+	agents := []AgentBudget{
+		{Agent: "list-agent-01", Driver: "claude-code", Box: "jared", BudgetMonthlyCents: 500},
+		{Agent: "list-agent-02", Driver: "codex", Box: "jared", BudgetMonthlyCents: 300},
+	}
+	for _, a := range agents {
+		if err := bs.SetBudget(ctx, a); err != nil {
+			t.Fatalf("set budget: %v", err)
+		}
+	}
+
+	all, err := bs.ListAll(ctx)
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(all) != len(agents) {
+		t.Errorf("expected %d budget records, got %d", len(agents), len(all))
+	}
+	found := map[string]bool{}
+	for _, b := range all {
+		found[b.Agent] = true
+	}
+	for _, a := range agents {
+		if !found[a.Agent] {
+			t.Errorf("expected agent %s in results", a.Agent)
+		}
+	}
+}
+
+func TestUpsertBudget(t *testing.T) {
+	bs, ctx := budgetTestSetup(t)
+
+	// Create via upsert — no pre-existing record.
+	created, err := bs.UpsertBudget(ctx, AgentBudget{
+		Agent:              "upsert-agent-01",
+		Driver:             "claude-code",
+		Box:                "jared",
+		BudgetMonthlyCents: 500,
+	})
+	if err != nil {
+		t.Fatalf("upsert (create): %v", err)
+	}
+	if created.BudgetMonthlyCents != 500 {
+		t.Errorf("expected budget=500, got %d", created.BudgetMonthlyCents)
+	}
+
+	// Simulate spending.
+	if _, err := bs.CheckAndIncrement(ctx, "upsert-agent-01", 100, "NORMAL"); err != nil {
+		t.Fatalf("check and increment: %v", err)
+	}
+
+	// Update budget limit — spent and driver should be preserved.
+	updated, err := bs.UpsertBudget(ctx, AgentBudget{
+		Agent:              "upsert-agent-01",
+		BudgetMonthlyCents: 1000,
+	})
+	if err != nil {
+		t.Fatalf("upsert (update): %v", err)
+	}
+	if updated.BudgetMonthlyCents != 1000 {
+		t.Errorf("expected budget=1000, got %d", updated.BudgetMonthlyCents)
+	}
+	if updated.SpentMonthlyCents != 100 {
+		t.Errorf("expected spent preserved at 100, got %d", updated.SpentMonthlyCents)
+	}
+	if updated.Driver != "claude-code" {
+		t.Errorf("expected driver preserved as claude-code, got %s", updated.Driver)
+	}
+}
+
 func TestMonthlyReset(t *testing.T) {
 	bs, ctx := budgetTestSetup(t)
 
