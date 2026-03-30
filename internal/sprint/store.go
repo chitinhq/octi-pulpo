@@ -96,16 +96,24 @@ func parseIssueRefs(body string) []int {
 	return nums
 }
 
+// syncOpenLimit is the maximum number of open issues fetched per sync.
+// When fewer than this many issues are returned, the list is complete and
+// tombstoneFromOpenSet can safely mark any Redis items outside that set as done.
+const syncOpenLimit = 200
+
 // Sync fetches open issues from a GitHub repo and stores them in Redis.
 // Issues labeled "sprint" get priority 0, others get priority 2.
 // After syncing issues it calls SyncPRs to mark items with open PRs as "pr_open",
 // preventing the brain from dispatching agents to re-implement in-flight work.
+// When the returned issue count is below syncOpenLimit (i.e. we received the
+// complete open list), tombstoneFromOpenSet runs to catch closed issues that
+// fall outside SyncClosed's window.
 func (s *Store) Sync(ctx context.Context, repo string) error {
 	cmd := exec.CommandContext(ctx, "gh", "issue", "list",
 		"-R", repo,
 		"--state", "open",
 		"--json", "number,title,labels,assignees",
-		"-L", "50",
+		"-L", strconv.Itoa(syncOpenLimit),
 	)
 	out, err := cmd.Output()
 	if err != nil {
@@ -191,6 +199,12 @@ func (s *Store) Sync(ctx context.Context, repo string) error {
 
 	s.log.Printf("synced %d issues from %s", len(issues), repo)
 
+	// Build the set of open issue numbers for tombstone and PR sync.
+	openNums := make(map[int]bool, len(issues))
+	for _, issue := range issues {
+		openNums[issue.Number] = true
+	}
+
 	// Promote items that already have open PRs so the brain doesn't re-dispatch.
 	if err := s.SyncPRs(ctx, repo); err != nil {
 		s.log.Printf("sync PRs for %s: %v", repo, err)
@@ -198,6 +212,12 @@ func (s *Store) Sync(ctx context.Context, repo string) error {
 	// Sync closed issues so items that shipped don't stay status="open" in Redis.
 	if err := s.SyncClosed(ctx, repo); err != nil {
 		s.log.Printf("sync closed issues for %s: %v", repo, err)
+	}
+	// Tombstone stale items: when we received fewer than syncOpenLimit results the
+	// open-issues list is complete, so any tracked item absent from that list must
+	// be closed in GitHub.  This catches issues closed before the SyncClosed window.
+	if len(issues) < syncOpenLimit {
+		s.tombstoneFromOpenSet(ctx, repo, openNums)
 	}
 	return nil
 }
@@ -448,12 +468,13 @@ func (s *Store) getByRepo(ctx context.Context, repo string) ([]SprintItem, error
 // SyncClosed fetches recently closed issues from a GitHub repo and marks
 // any matching sprint items as "done". This prevents the brain from
 // re-dispatching work that has already shipped.
+// The limit matches syncOpenLimit so the window is consistent with the open-issue sync.
 func (s *Store) SyncClosed(ctx context.Context, repo string) error {
 	cmd := exec.CommandContext(ctx, "gh", "issue", "list",
 		"-R", repo,
 		"--state", "closed",
 		"--json", "number",
-		"-L", "50",
+		"-L", strconv.Itoa(syncOpenLimit),
 	)
 	out, err := cmd.Output()
 	if err != nil {
@@ -504,6 +525,45 @@ func (s *Store) markClosedItems(ctx context.Context, repo string, issueNums []in
 		marked++
 	}
 	return marked
+}
+
+// tombstoneFromOpenSet marks sprint items as "done" when their issue number is
+// absent from openNums (the complete set of currently-open GitHub issues for the
+// repo).  Only items with status "open" or "pr_open" are affected — claimed,
+// in_progress, and done items are left untouched.
+//
+// This is called from Sync only when len(openIssues) < syncOpenLimit, i.e. when
+// the list is known to be complete.  For repos with more open issues than the
+// limit, tombstoning is skipped to avoid false-marking genuinely-open items.
+func (s *Store) tombstoneFromOpenSet(ctx context.Context, repo string, openNums map[int]bool) {
+	existing, err := s.getByRepo(ctx, repo)
+	if err != nil {
+		s.log.Printf("tombstone: get items for %s: %v", repo, err)
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	var tombstoned int
+	for _, item := range existing {
+		if openNums[item.IssueNum] {
+			continue // still open in GitHub
+		}
+		// Only tombstone items that appear open from the sprint store's perspective
+		// but are absent from the current GitHub open-issues list.
+		if item.Status != "open" && item.Status != "pr_open" {
+			continue
+		}
+		item.Status = "done"
+		item.UpdatedAt = now
+		data, _ := json.Marshal(item)
+		if err := s.rdb.Set(ctx, s.itemKey(repo, item.IssueNum), data, 0).Err(); err != nil {
+			s.log.Printf("tombstone %s#%d: %v", repo, item.IssueNum, err)
+			continue
+		}
+		tombstoned++
+	}
+	if tombstoned > 0 {
+		s.log.Printf("tombstoned %d stale items in %s", tombstoned, repo)
+	}
 }
 
 // Reprioritize updates the priority of a sprint item identified by repo + issue number.
