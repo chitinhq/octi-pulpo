@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
@@ -30,6 +31,7 @@ type WebhookServer struct {
 	sprintStore        *sprint.Store
 	benchmark          *BenchmarkTracker
 	slackEvents        *SlackEventHandler
+	budgetStore        *budget.BudgetStore
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -338,6 +340,11 @@ func (ws *WebhookServer) SetSlackSigningSecret(secret []byte) {
 	ws.slackSigningSecret = secret
 }
 
+// SetBudgetStore enables budget override actions in /slack/actions.
+func (ws *WebhookServer) SetBudgetStore(bs *budget.BudgetStore) {
+	ws.budgetStore = bs
+}
+
 // handleSlackActions receives interactive action callbacks from Slack (Block Kit buttons).
 // Slack POSTs application/x-www-form-urlencoded with a "payload" field containing JSON.
 //
@@ -483,6 +490,20 @@ func (ws *WebhookServer) routeSlackAction(ctx context.Context, actionID, value, 
 			return "", fmt.Errorf("publish goal-rejected signal: %w", err)
 		}
 		return fmt.Sprintf("🔄 Changes requested for `%s` by @%s", value, actor), nil
+
+	case "override_budget":
+		// Unpause a budget-exhausted agent.
+		if ws.budgetStore == nil {
+			return "", fmt.Errorf("budget store not configured")
+		}
+		if err := ws.budgetStore.Unpause(ctx, value); err != nil {
+			return "", fmt.Errorf("unpause budget for %s: %w", value, err)
+		}
+		return fmt.Sprintf("✅ Budget override — `%s` unpaused by @%s", value, actor), nil
+
+	case "dismiss_budget_alert":
+		// Acknowledged — agent stays paused.
+		return fmt.Sprintf("👍 Budget alert dismissed by @%s — `%s` remains paused", actor, value), nil
 
 	case "ignore_alert", "review_pr", "skip_pr":
 		// Acknowledged — no further action needed.

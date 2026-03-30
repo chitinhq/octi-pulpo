@@ -226,6 +226,17 @@ func (bs *BudgetStore) UpsertBudget(ctx context.Context, update AgentBudget) (Ag
 	return existing, nil
 }
 
+// Unpause clears the paused flag for an agent without resetting spent amounts.
+// Use this for operator budget overrides when a paused agent should resume.
+func (bs *BudgetStore) Unpause(ctx context.Context, agent string) error {
+	budget, err := bs.GetBudget(ctx, agent)
+	if err != nil {
+		return err
+	}
+	budget.Paused = false
+	return bs.SetBudget(ctx, budget)
+}
+
 // key returns a namespaced Redis key for agent budgets.
 func (bs *BudgetStore) key(agent string) string {
 	return bs.namespace + ":budget:" + agent

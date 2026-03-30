@@ -129,6 +129,32 @@ func TestNotifier_PostSprintGoalAlert(t *testing.T) {
 	}
 }
 
+func TestNotifier_PostBudgetPausedAlert(t *testing.T) {
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	n := NewNotifier(srv.URL)
+
+	if err := n.PostBudgetPausedAlert(ctx, "octi-pulpo-sr"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	raw := string(received)
+	for _, actionID := range []string{"override_budget", "dismiss_budget_alert"} {
+		if !strings.Contains(raw, actionID) {
+			t.Errorf("expected action_id %q in budget paused alert", actionID)
+		}
+	}
+	if !strings.Contains(raw, "octi-pulpo-sr") {
+		t.Error("expected agent name in budget paused alert")
+	}
+}
+
 func TestNotifier_BlockKit_NoopWhenDisabled(t *testing.T) {
 	ctx := context.Background()
 	n := NewNotifier("")
@@ -141,6 +167,9 @@ func TestNotifier_BlockKit_NoopWhenDisabled(t *testing.T) {
 	}
 	if err := n.PostSprintGoalAlert(ctx, "squad", "goal"); err != nil {
 		t.Fatalf("PostSprintGoalAlert: %v", err)
+	}
+	if err := n.PostBudgetPausedAlert(ctx, "some-agent"); err != nil {
+		t.Fatalf("PostBudgetPausedAlert: %v", err)
 	}
 }
 
@@ -352,5 +381,62 @@ func TestRouteSlackAction_Context(t *testing.T) {
 		if !strings.Contains(ack, "testuser") {
 			t.Errorf("routeSlackAction(%q) ack missing actor: %q", actionID, ack)
 		}
+	}
+}
+
+// TestRouteSlackAction_DismissBudgetAlert verifies dismiss is a no-op acknowledgement.
+func TestRouteSlackAction_DismissBudgetAlert(t *testing.T) {
+	d, ctx := testSetup(t)
+	ws := NewWebhookServer(d, "")
+
+	ack, err := ws.routeSlackAction(ctx, "dismiss_budget_alert", "octi-pulpo-sr", "jared")
+	if err != nil {
+		t.Fatalf("routeSlackAction(dismiss_budget_alert): %v", err)
+	}
+	if !strings.Contains(ack, "octi-pulpo-sr") {
+		t.Errorf("expected agent name in ack, got %q", ack)
+	}
+	if !strings.Contains(ack, "jared") {
+		t.Errorf("expected actor name in ack, got %q", ack)
+	}
+	if !strings.Contains(strings.ToLower(ack), "paused") {
+		t.Errorf("expected 'paused' in dismiss ack, got %q", ack)
+	}
+}
+
+// TestRouteSlackAction_OverrideBudget_NoBudgetStore verifies an error is returned
+// when the budget store is not configured.
+func TestRouteSlackAction_OverrideBudget_NoBudgetStore(t *testing.T) {
+	d, ctx := testSetup(t)
+	ws := NewWebhookServer(d, "")
+	// No budget store set
+
+	_, err := ws.routeSlackAction(ctx, "override_budget", "octi-pulpo-sr", "jared")
+	if err == nil {
+		t.Fatal("expected error when budget store is not configured")
+	}
+}
+
+// TestWebhookServer_SlackActions_DismissBudgetAlert verifies full HTTP round-trip.
+func TestWebhookServer_SlackActions_DismissBudgetAlert(t *testing.T) {
+	d, _ := testSetup(t)
+	ws := NewWebhookServer(d, "")
+
+	body := makeSlackPayload("dismiss_budget_alert", "octi-pulpo-sr", "jared")
+	req := httptest.NewRequest(http.MethodPost, "/slack/actions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	ws.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if !strings.Contains(resp["text"], "octi-pulpo-sr") {
+		t.Errorf("expected agent name in response, got %q", resp["text"])
 	}
 }

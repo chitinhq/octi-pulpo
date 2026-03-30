@@ -297,6 +297,43 @@ func TestUpsertBudget(t *testing.T) {
 	}
 }
 
+func TestUnpause(t *testing.T) {
+	bs, ctx := budgetTestSetup(t)
+
+	budget := AgentBudget{
+		Agent:              "sr-kernel-unpause",
+		Driver:             "claude-code",
+		Box:                "jared",
+		BudgetMonthlyCents: 500,
+		SpentMonthlyCents:  500,
+		RunsThisMonth:      20,
+		Paused:             true,
+	}
+	if err := bs.SetBudget(ctx, budget); err != nil {
+		t.Fatalf("set budget: %v", err)
+	}
+
+	if err := bs.Unpause(ctx, "sr-kernel-unpause"); err != nil {
+		t.Fatalf("unpause: %v", err)
+	}
+
+	got, err := bs.GetBudget(ctx, "sr-kernel-unpause")
+	if err != nil {
+		t.Fatalf("get budget: %v", err)
+	}
+
+	if got.Paused {
+		t.Error("expected paused=false after Unpause")
+	}
+	// Spent and runs should be preserved (not reset)
+	if got.SpentMonthlyCents != 500 {
+		t.Errorf("expected spent=500 preserved after Unpause, got %d", got.SpentMonthlyCents)
+	}
+	if got.RunsThisMonth != 20 {
+		t.Errorf("expected runs=20 preserved after Unpause, got %d", got.RunsThisMonth)
+	}
+}
+
 func TestMonthlyReset(t *testing.T) {
 	bs, ctx := budgetTestSetup(t)
 

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
@@ -62,6 +63,7 @@ type SlackEventHandler struct {
 	benchmark     *BenchmarkTracker
 	notifier      *Notifier
 	brain         *Brain
+	budgetStore   *budget.BudgetStore
 	log           *log.Logger
 	client        *http.Client
 }
@@ -90,6 +92,9 @@ func (h *SlackEventHandler) SetNotifier(n *Notifier) { h.notifier = n }
 
 // SetBrain enables constraint-aware replies.
 func (h *SlackEventHandler) SetBrain(b *Brain) { h.brain = b }
+
+// SetBudgetStore enables budget override commands.
+func (h *SlackEventHandler) SetBudgetStore(bs *budget.BudgetStore) { h.budgetStore = bs }
 
 // Handle processes a Slack Events API HTTP request.
 // It ACKs immediately and dispatches command handling in a goroutine
@@ -183,6 +188,8 @@ func (h *SlackEventHandler) parseCommand(text string) (cmd, args string) {
 		return "pause", strings.TrimSpace(strings.TrimPrefix(text, "pause "))
 	case strings.HasPrefix(text, "resume "):
 		return "resume", strings.TrimSpace(strings.TrimPrefix(text, "resume "))
+	case strings.HasPrefix(text, "budget override "):
+		return "budget_override", strings.TrimSpace(strings.TrimPrefix(text, "budget override "))
 	}
 	return "", ""
 }
@@ -201,6 +208,8 @@ func (h *SlackEventHandler) handleCommand(ctx context.Context, cmd, args, channe
 		blocks = h.buildPauseBlocks(ctx, args)
 	case "resume":
 		blocks = h.buildResumeBlocks(ctx, args)
+	case "budget_override":
+		blocks = h.buildBudgetOverrideBlocks(ctx, args)
 	case "help":
 		blocks = h.buildHelpBlocks()
 	default:
@@ -372,6 +381,21 @@ func (h *SlackEventHandler) buildResumeBlocks(ctx context.Context, squad string)
 	return slackTextBlocks(fmt.Sprintf(":arrow_forward: *%s squad resumed.* Directive broadcast.", squad))
 }
 
+// buildBudgetOverrideBlocks unpauses a budget-exhausted agent and returns a
+// Block Kit confirmation. The agent name comes from args.
+func (h *SlackEventHandler) buildBudgetOverrideBlocks(ctx context.Context, agent string) []interface{} {
+	if agent == "" {
+		return slackTextBlocks(":x: Usage: `budget override <agent>`")
+	}
+	if h.budgetStore == nil {
+		return slackTextBlocks(":x: Budget store not available")
+	}
+	if err := h.budgetStore.Unpause(ctx, agent); err != nil {
+		return slackTextBlocks(fmt.Sprintf(":x: Could not override budget for `%s`: %s", agent, err))
+	}
+	return slackTextBlocks(fmt.Sprintf(":white_check_mark: Budget override applied — `%s` is unpaused and will resume on next dispatch.", agent))
+}
+
 // buildHelpBlocks returns a Block Kit help card listing all supported commands.
 func (h *SlackEventHandler) buildHelpBlocks() []interface{} {
 	text := "*Octi Pulpo Bot Commands*\n\n" +
@@ -381,6 +405,7 @@ func (h *SlackEventHandler) buildHelpBlocks() []interface{} {
 		"`dispatch <agent> at #<issue>` — trigger with issue context\n" +
 		"`pause <squad>` — broadcast pause directive to squad agents\n" +
 		"`resume <squad>` — broadcast resume directive to squad agents\n" +
+		"`budget override <agent>` — unpause a budget-exhausted agent\n" +
 		"`help` — show this message"
 	return slackTextBlocks(text)
 }

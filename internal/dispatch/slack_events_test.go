@@ -357,6 +357,62 @@ func (t *testURLRewriter) RoundTrip(req *http.Request) (*http.Response, error) {
 	return rt.RoundTrip(req2)
 }
 
+// TestParseCommand_BudgetOverride verifies budget override command parsing.
+func TestParseCommand_BudgetOverride(t *testing.T) {
+	h := newTestSlackHandler()
+
+	cases := []struct {
+		input    string
+		wantCmd  string
+		wantArgs string
+	}{
+		{"budget override octi-pulpo-sr", "budget_override", "octi-pulpo-sr"},
+		{"budget override kernel-sr-01", "budget_override", "kernel-sr-01"},
+		// budget without subcommand should not match
+		{"budget", "", ""},
+		// budget with unknown subcommand should not match
+		{"budget reset agent", "", ""},
+	}
+
+	for _, tc := range cases {
+		cmd, args := h.parseCommand(tc.input)
+		if cmd != tc.wantCmd || args != tc.wantArgs {
+			t.Errorf("parseCommand(%q) = (%q, %q), want (%q, %q)",
+				tc.input, cmd, args, tc.wantCmd, tc.wantArgs)
+		}
+	}
+}
+
+// TestBuildBudgetOverrideBlocks_NoAgent verifies usage error when agent is empty.
+func TestBuildBudgetOverrideBlocks_NoAgent(t *testing.T) {
+	h := newTestSlackHandler()
+	blocks := h.buildBudgetOverrideBlocks(context.Background(), "")
+	data, _ := json.Marshal(blocks)
+	if !strings.Contains(string(data), "Usage") {
+		t.Errorf("expected usage hint for empty agent, got %s", data)
+	}
+}
+
+// TestBuildBudgetOverrideBlocks_NoBudgetStore verifies error when store is nil.
+func TestBuildBudgetOverrideBlocks_NoBudgetStore(t *testing.T) {
+	h := newTestSlackHandler() // no budget store set
+	blocks := h.buildBudgetOverrideBlocks(context.Background(), "some-agent")
+	data, _ := json.Marshal(blocks)
+	if !strings.Contains(string(data), "not available") {
+		t.Errorf("expected 'not available' error for nil budget store, got %s", data)
+	}
+}
+
+// TestBuildHelpBlocks_IncludesBudgetOverride verifies the help text lists the new command.
+func TestBuildHelpBlocks_IncludesBudgetOverride(t *testing.T) {
+	h := newTestSlackHandler()
+	blocks := h.buildHelpBlocks()
+	data, _ := json.Marshal(blocks)
+	if !strings.Contains(string(data), "budget override") {
+		t.Errorf("help blocks should list 'budget override' command, got %s", data)
+	}
+}
+
 // TestWebhookServer_SetSlackEvents verifies the /slack/events route is registered.
 func TestWebhookServer_SetSlackEvents(t *testing.T) {
 	// Create a minimal dispatcher to satisfy constructor requirements.
