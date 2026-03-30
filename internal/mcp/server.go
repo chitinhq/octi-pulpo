@@ -433,6 +433,7 @@ func (s *Server) handleToolCall(req Request) Response {
 		var args struct {
 			Repo     string `json:"repo"`
 			IssueNum int    `json:"issue_num"`
+			Summary  string `json:"summary"`
 		}
 		json.Unmarshal(params.Arguments, &args)
 		if args.IssueNum == 0 {
@@ -451,6 +452,11 @@ func (s *Server) handleToolCall(req Request) Response {
 						}
 						msg += fmt.Sprintf("; unblocked: %s", strings.Join(nums, ", "))
 					}
+					if closeErr := s.sprintStore.CloseIssue(ctx, repo, args.IssueNum, args.Summary); closeErr != nil {
+						msg += fmt.Sprintf(" (github close failed: %v)", closeErr)
+					} else {
+						msg += "; github issue closed"
+					}
 					return textResult(req.ID, msg)
 				}
 			}
@@ -467,6 +473,11 @@ func (s *Server) handleToolCall(req Request) Response {
 				nums[i] = fmt.Sprintf("#%d", n)
 			}
 			msg += fmt.Sprintf("; unblocked: %s", strings.Join(nums, ", "))
+		}
+		if closeErr := s.sprintStore.CloseIssue(ctx, args.Repo, args.IssueNum, args.Summary); closeErr != nil {
+			msg += fmt.Sprintf(" (github close failed: %v)", closeErr)
+		} else {
+			msg += "; github issue closed"
 		}
 		return textResult(req.ID, msg)
 
@@ -860,12 +871,13 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "sprint_complete",
-			Description: "Mark a sprint item as done. Unblocks any dependent items. Call after merging a PR or closing an issue outside of the normal sync cycle.",
+			Description: "Mark a sprint item as done, close the GitHub issue, and unblock any dependent items. Call this when you finish implementing a feature and are ready to ship. Pass a summary to have it posted as a GitHub issue comment before closing.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"issue_num": map[string]interface{}{"type": "number", "description": "GitHub issue number to mark done"},
 					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo). If omitted, all tracked repos are searched."},
+					"summary":   map[string]interface{}{"type": "string", "description": "Optional run summary posted as a GitHub comment before closing the issue (e.g. what was implemented, PR number, test results)."},
 				},
 				"required": []string{"issue_num"},
 			},

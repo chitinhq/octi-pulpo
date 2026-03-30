@@ -582,6 +582,38 @@ func (s *Store) Complete(ctx context.Context, repo string, issueNum int) (unbloc
 	return unblocked, nil
 }
 
+// CloseIssue closes a GitHub issue via the gh CLI and optionally posts a
+// comment. It is called by sprint_complete to close the issue on GitHub when
+// an agent marks work done in the sprint store.
+//
+// If comment is non-empty, a comment is posted before closing so the summary
+// appears in the issue timeline. Both operations are best-effort — errors are
+// returned but the sprint store state is not rolled back.
+func (s *Store) CloseIssue(ctx context.Context, repo string, issueNum int, comment string) error {
+	numStr := strconv.Itoa(issueNum)
+
+	if comment != "" {
+		commentCmd := exec.CommandContext(ctx, "gh", "issue", "comment",
+			"-R", repo,
+			numStr,
+			"--body", comment,
+		)
+		if out, err := commentCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("gh issue comment %s#%d: %w (output: %s)", repo, issueNum, err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	closeCmd := exec.CommandContext(ctx, "gh", "issue", "close",
+		"-R", repo,
+		numStr,
+	)
+	if out, err := closeCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gh issue close %s#%d: %w (output: %s)", repo, issueNum, err, strings.TrimSpace(string(out)))
+	}
+
+	return nil
+}
+
 func (s *Store) itemKey(repo string, issueNum int) string {
 	return s.namespace + ":sprint:" + repo + ":" + strconv.Itoa(issueNum)
 }
