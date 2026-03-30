@@ -628,6 +628,64 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, tree)
 
+	case "budget_status":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args struct {
+			Agent string `json:"agent"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Agent != "" {
+			b, err := s.budgetStore.GetBudget(ctx, args.Agent)
+			if err != nil {
+				return errorResp(req.ID, -32000, err.Error())
+			}
+			data, _ := json.Marshal(b)
+			return textResult(req.ID, string(data))
+		}
+		budgets, err := s.budgetStore.ListBudgets(ctx)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if len(budgets) == 0 {
+			return textResult(req.ID, "No agent budgets found.")
+		}
+		data, _ := json.Marshal(budgets)
+		return textResult(req.ID, string(data))
+
+	case "budget_set":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args budget.AgentBudget
+		if err := json.Unmarshal(params.Arguments, &args); err != nil {
+			return errorResp(req.ID, -32602, "invalid budget arguments")
+		}
+		if args.Agent == "" {
+			return errorResp(req.ID, -32602, "agent is required")
+		}
+		if err := s.budgetStore.SetBudget(ctx, args); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf("Budget set for agent %q: %d cents/month", args.Agent, args.BudgetMonthlyCents))
+
+	case "budget_reset":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args struct {
+			Agent string `json:"agent"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Agent == "" {
+			return errorResp(req.ID, -32602, "agent is required")
+		}
+		if err := s.budgetStore.MonthlyReset(ctx, args.Agent); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf("Budget reset for agent %q: spent_monthly_cents=0, runs_this_month=0, paused=false", args.Agent))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -963,6 +1021,42 @@ func toolDefs() []ToolDef {
 					"all":   map[string]interface{}{"type": "boolean", "description": "Set true to return all squads' standups for today."},
 				},
 				"required": []string{},
+			},
+		},
+		{
+			Name:        "budget_status",
+			Description: "Return per-agent budget status: monthly limit, amount spent, run count, last run timestamp, and paused flag. Pass agent name for a single agent, or omit for all agents.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent": map[string]string{"type": "string", "description": "Agent name to query (e.g. 'claude-code:octi-pulpo:senior'). Omit to list all agents."},
+				},
+			},
+		},
+		{
+			Name:        "budget_set",
+			Description: "Set or update an agent's monthly budget. Creates the record if it does not exist. Use to allocate a new budget or adjust an existing cap without resetting spend.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent":                map[string]string{"type": "string", "description": "Agent identity string (e.g. 'claude-code:octi-pulpo:senior')"},
+					"driver":               map[string]string{"type": "string", "description": "Driver name (e.g. 'claude-code', 'copilot')"},
+					"box":                  map[string]string{"type": "string", "description": "Host/box identifier"},
+					"budget_monthly_cents": map[string]interface{}{"type": "number", "description": "Monthly spending cap in cents (e.g. 5000 = $50.00)"},
+					"paused":               map[string]interface{}{"type": "boolean", "description": "Set true to pause the agent immediately"},
+				},
+				"required": []string{"agent", "budget_monthly_cents"},
+			},
+		},
+		{
+			Name:        "budget_reset",
+			Description: "Reset an agent's monthly spend counter. Zeroes spent_monthly_cents and runs_this_month, and clears the paused flag. Use at the start of each billing cycle or to unblock a paused agent.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent": map[string]string{"type": "string", "description": "Agent name to reset (e.g. 'claude-code:octi-pulpo:senior')"},
+				},
+				"required": []string{"agent"},
 			},
 		},
 	}
