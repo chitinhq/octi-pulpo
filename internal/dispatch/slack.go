@@ -166,6 +166,33 @@ func (n *Notifier) PostPRReadyAlert(ctx context.Context, repo string, prNumber i
 	return n.postBlocks(ctx, blocks)
 }
 
+// PostStuckAgentAlert sends a Slack alert when an agent has accumulated 3+ consecutive
+// failures (TriageFlag=true), indicating it needs operator attention before being
+// dispatched aggressively again.
+func (n *Notifier) PostStuckAgentAlert(ctx context.Context, agent string, consecutiveFails int) error {
+	if !n.Enabled() {
+		return nil
+	}
+	text := fmt.Sprintf(
+		"⚠️ *Stuck Agent: `%s`*\n%d consecutive failures — triage flag set.\nAgent is in 12h backoff. Review recent runs before re-enabling.",
+		agent, consecutiveFails,
+	)
+	return n.post(ctx, map[string]interface{}{"text": text})
+}
+
+// PostInactiveSquadAlert sends a Slack alert when a squad has had no dispatch activity
+// for more than 24 hours.
+func (n *Notifier) PostInactiveSquadAlert(ctx context.Context, squad string, idleHours int) error {
+	if !n.Enabled() {
+		return nil
+	}
+	text := fmt.Sprintf(
+		"🕐 *Inactive Squad: `%s`*\nNo dispatch activity in the last %dh.\nCheck schedule, driver health, or open sprint items.",
+		squad, idleHours,
+	)
+	return n.post(ctx, map[string]interface{}{"text": text})
+}
+
 // PostSprintGoalAlert sends an interactive Block Kit message when a sprint goal is delivered.
 // It includes [Accept] and [Request Changes] action buttons.
 func (n *Notifier) PostSprintGoalAlert(ctx context.Context, squad, goal string) error {
