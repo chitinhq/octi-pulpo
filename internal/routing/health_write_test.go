@@ -105,6 +105,48 @@ func TestCloseCircuit(t *testing.T) {
 	}
 }
 
+func TestForceCloseCircuit_ResetsOpenCircuit(t *testing.T) {
+	dir := t.TempDir()
+	// Seed an OPEN circuit with a high failure count.
+	writeHealth(t, dir, "codex", HealthFile{State: "OPEN", Failures: 73, LastFailure: "2026-03-30T00:57:06Z"})
+
+	if err := ForceCloseCircuit(dir, "codex"); err != nil {
+		t.Fatalf("ForceCloseCircuit: %v", err)
+	}
+
+	h := ReadDriverHealth(dir, "codex")
+	if h.CircuitState != "CLOSED" {
+		t.Errorf("circuit state = %q, want CLOSED", h.CircuitState)
+	}
+	if h.Failures != 0 {
+		t.Errorf("failures = %d, want 0 (force reset clears count)", h.Failures)
+	}
+	if h.LastSuccess == "" {
+		t.Error("last_success should be set after ForceCloseCircuit")
+	}
+	// last_failure must be preserved for audit history.
+	if h.LastFailure != "2026-03-30T00:57:06Z" {
+		t.Errorf("last_failure = %q, want preserved from before reset", h.LastFailure)
+	}
+}
+
+func TestForceCloseCircuit_AlwaysWrites(t *testing.T) {
+	// ForceCloseCircuit should write even when the circuit is already CLOSED
+	// (unlike MarkDriverSuccess which skips the write when already clean).
+	dir := t.TempDir()
+	writeHealth(t, dir, "gemini", HealthFile{State: "CLOSED", Failures: 0})
+
+	before := ReadDriverHealth(dir, "gemini")
+	if err := ForceCloseCircuit(dir, "gemini"); err != nil {
+		t.Fatalf("ForceCloseCircuit: %v", err)
+	}
+	after := ReadDriverHealth(dir, "gemini")
+	// last_success should have been updated even for an already-CLOSED circuit.
+	if after.LastSuccess == before.LastSuccess {
+		t.Error("expected last_success to be updated by ForceCloseCircuit")
+	}
+}
+
 func TestDetectExhaustedDriver_ClaudeCredit(t *testing.T) {
 	output := "Error: Credit balance is too low. Visit claude.ai to top up."
 	driver, found := DetectExhaustedDriver(output)

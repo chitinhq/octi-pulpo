@@ -201,6 +201,27 @@ func (r *Router) HealthDir() string {
 	return r.healthDir
 }
 
+// ForceClose manually resets a driver circuit to CLOSED with zero failures.
+// Returns an error if no health file exists for the driver (nothing to reset).
+// On success returns the new DriverHealth state.
+func (r *Router) ForceClose(driver string) (DriverHealth, error) {
+	known := DiscoverDrivers(r.healthDir)
+	found := false
+	for _, d := range known {
+		if d == driver {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return DriverHealth{}, fmt.Errorf("driver %q has no health file in %s", driver, r.healthDir)
+	}
+	if err := ForceCloseCircuit(r.healthDir, driver); err != nil {
+		return DriverHealth{}, err
+	}
+	return ReadDriverHealth(r.healthDir, driver), nil
+}
+
 // DynamicBudget returns a budget level derived from current CLI-tier driver health.
 // It is used by the dispatcher to avoid automatic escalation to expensive API-tier
 // drivers when CLI-tier capacity is still available.
