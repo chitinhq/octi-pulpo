@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -147,7 +148,7 @@ func (bs *BudgetStore) CheckAndIncrement(ctx context.Context, agent string, cost
 		isCritical = 1
 	}
 
-	timestamp := "2026-03-30T00:00:00Z" // default; in production use time.Now()
+	timestamp := time.Now().UTC().Format(time.RFC3339)
 	result, err := checkAndIncrementScript.Run(ctx, bs.rdb,
 		[]string{bs.key(agent)},
 		costCents, threshold, timestamp, isCritical,
