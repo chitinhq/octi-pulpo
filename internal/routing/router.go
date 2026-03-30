@@ -27,7 +27,14 @@ var driverTiers = map[string]CostTier{
 	"ollama":   TierLocal,
 	"nemotron": TierLocal,
 	// Subscription (browser-based, already paying)
-	"openclaw": TierSubscription,
+	//   openclaw: browser-automated Claude Max subscription
+	//   chatgpt-browser: OpenAI Plus subscription via chat.openai.com
+	//   notebooklm-browser: Google AI Premium via notebooklm.google.com
+	//   gemini-app-browser: Google AI Premium via gemini.google.com
+	"openclaw":           TierSubscription,
+	"chatgpt-browser":    TierSubscription,
+	"notebooklm-browser": TierSubscription,
+	"gemini-app-browser": TierSubscription,
 	// CLI (metered subscription)
 	"claude-code": TierCLI,
 	"copilot":     TierCLI,
@@ -48,7 +55,10 @@ var taskAffinityTiers = []struct {
 	minTier  CostTier
 }{
 	{[]string{"code", "review", "pull-request", "commit", "implement", "debug", "refactor", "test"}, TierCLI},
-	{[]string{"browse", "web", "click", "screenshot", "briefing", "artifact", "document"}, TierSubscription},
+	// Browser-tier tasks: general web interaction plus NotebookLM-specific capabilities
+	// (audio overview, podcast briefing, slide deck generation, Drive export).
+	{[]string{"browse", "web", "click", "screenshot", "briefing", "artifact", "document",
+		"audio-overview", "audio overview", "podcast", "slide", "upload document", "export to drive"}, TierSubscription},
 	{[]string{"burst", "programmatic", "api-call"}, TierAPI},
 	// "simple", "classify", "triage" etc. get no override → defaults to TierLocal
 }

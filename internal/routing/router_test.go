@@ -400,6 +400,13 @@ func TestTaskMinTier(t *testing.T) {
 		{"generate briefing", TierSubscription},
 		{"web screenshot", TierSubscription},
 		{"browse the page", TierSubscription},
+		// Browser-driver task keywords (issue #5)
+		{"generate audio-overview", TierSubscription},
+		{"audio overview from documents", TierSubscription},
+		{"podcast briefing", TierSubscription},
+		{"create slide deck", TierSubscription},
+		{"upload document to notebooklm", TierSubscription},
+		{"export to drive", TierSubscription},
 		{"programmatic api-call", TierAPI},
 		{"burst workload", TierAPI},
 		{"simple triage", TierLocal},
@@ -411,6 +418,108 @@ func TestTaskMinTier(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("taskMinTier(%q) = %s, want %s", tc.taskType, got, tc.want)
 		}
+	}
+}
+
+// ── Browser driver routing tests (issue #5) ───────────────────────────────────
+
+func TestBrowserDriversRegistered(t *testing.T) {
+	for _, name := range []string{"chatgpt-browser", "notebooklm-browser", "gemini-app-browser"} {
+		tier, ok := driverTiers[name]
+		if !ok {
+			t.Errorf("driver %q missing from driverTiers", name)
+			continue
+		}
+		if tier != TierSubscription {
+			t.Errorf("driver %q: expected TierSubscription, got %s", name, tier)
+		}
+	}
+}
+
+func TestRecommend_BrowserDriverPreferredOverCLI(t *testing.T) {
+	// Browser tasks should route to subscription-tier browser drivers before CLI.
+	dir := t.TempDir()
+	tiers := tiersFor(
+		"notebooklm-browser", TierSubscription,
+		"claude-code", TierCLI,
+	)
+	// Both healthy (no health files)
+
+	r := NewRouterWithTiers(dir, tiers)
+	dec := r.Recommend("generate audio-overview", "high")
+
+	if dec.Skip {
+		t.Fatal("expected recommendation, got Skip")
+	}
+	if dec.Tier != string(TierSubscription) {
+		t.Fatalf("expected subscription tier for audio-overview task, got %s (driver=%s)", dec.Tier, dec.Driver)
+	}
+	if dec.Driver != "notebooklm-browser" {
+		t.Fatalf("expected notebooklm-browser, got %s", dec.Driver)
+	}
+}
+
+func TestRecommend_BrowserDriverFallsBackToCLI(t *testing.T) {
+	// When browser driver circuit is OPEN, task should cascade to CLI.
+	dir := t.TempDir()
+	tiers := tiersFor(
+		"chatgpt-browser", TierSubscription,
+		"claude-code", TierCLI,
+	)
+	writeHealth(t, dir, "chatgpt-browser", HealthFile{State: "OPEN", Failures: 5})
+	// claude-code healthy (no health file)
+
+	r := NewRouterWithTiers(dir, tiers)
+	dec := r.Recommend("web screenshot", "high")
+
+	if dec.Skip {
+		t.Fatalf("expected CLI fallback, got Skip: %s", dec.Reason)
+	}
+	if dec.Tier != string(TierCLI) {
+		t.Fatalf("expected CLI tier fallback when browser OPEN, got %s (driver=%s)", dec.Tier, dec.Driver)
+	}
+}
+
+func TestRecommend_MultipleBrowserDrivers_FallbackPopulated(t *testing.T) {
+	// All three browser drivers healthy → primary + two fallbacks.
+	dir := t.TempDir()
+	tiers := tiersFor(
+		"chatgpt-browser", TierSubscription,
+		"notebooklm-browser", TierSubscription,
+		"gemini-app-browser", TierSubscription,
+	)
+	// All healthy (no health files)
+
+	r := NewRouterWithTiers(dir, tiers)
+	dec := r.Recommend("browse the page", "high")
+
+	if dec.Skip {
+		t.Fatalf("expected recommendation, got Skip")
+	}
+	if dec.Tier != string(TierSubscription) {
+		t.Fatalf("expected subscription tier, got %s", dec.Tier)
+	}
+	if len(dec.Fallbacks) != 2 {
+		t.Fatalf("expected 2 fallbacks (other browser drivers), got %d: %v", len(dec.Fallbacks), dec.Fallbacks)
+	}
+}
+
+func TestRecommend_BrowserDriverNotAllowedAtLowBudget(t *testing.T) {
+	// Budget "low" caps at local tier; subscription-tier browser drivers must not be used.
+	// (Low budget means local-only, not "use existing subscriptions".)
+	dir := t.TempDir()
+	tiers := tiersFor(
+		"ollama", TierLocal,
+		"chatgpt-browser", TierSubscription,
+	)
+	writeHealth(t, dir, "ollama", HealthFile{State: "OPEN"})
+	// chatgpt-browser healthy
+
+	r := NewRouterWithTiers(dir, tiers)
+	dec := r.Recommend("web screenshot", "low")
+
+	if !dec.Skip {
+		t.Fatalf("expected Skip (low budget prohibits subscription tier), got driver=%s tier=%s", dec.Driver, dec.Tier)
 	}
 }
 
