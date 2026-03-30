@@ -632,3 +632,93 @@ func TestInferSquadFromRepo(t *testing.T) {
 		}
 	}
 }
+
+// TestTombstoneFromOpenSet_MarksStaleItems verifies that items tracked in Redis
+// but absent from the current open-issues list get tombstoned as "done".
+// This covers the case where SyncClosed misses old closed issues (e.g. octi-pulpo#10).
+func TestTombstoneFromOpenSet_MarksStaleItems(t *testing.T) {
+	s, ctx := testStore(t)
+
+	repo := "AgentGuardHQ/octi-pulpo"
+	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
+
+	items := []SprintItem{
+		{Squad: "octi-pulpo", IssueNum: 10, Repo: repo, Title: "NotebookLM pipeline", Priority: 0, Status: "open"},    // closed in GitHub, stale in Redis
+		{Squad: "octi-pulpo", IssueNum: 44, Repo: repo, Title: "Async standups", Priority: 0, Status: "open"},         // still open
+		{Squad: "octi-pulpo", IssueNum: 72, Repo: repo, Title: "Slack control plane", Priority: 2, Status: "pr_open", PRNumber: 90}, // pr_open but closed in GitHub
+		{Squad: "octi-pulpo", IssueNum: 73, Repo: repo, Title: "Ticket ingestion", Priority: 2, Status: "done"},        // already done — must not change
+	}
+	for _, item := range items {
+		data, _ := json.Marshal(item)
+		s.rdb.Set(ctx, s.itemKey(repo, item.IssueNum), data, 0)
+	}
+
+	// GitHub reports only issues #44 as currently open.
+	openNums := map[int]bool{44: true}
+	s.tombstoneFromOpenSet(ctx, repo, openNums)
+
+	all, _ := s.GetAll(ctx)
+	byNum := make(map[int]SprintItem, len(all))
+	for _, item := range all {
+		byNum[item.IssueNum] = item
+	}
+
+	// #10: was "open", not in openNums → must be tombstoned
+	if byNum[10].Status != "done" {
+		t.Errorf("issue #10: expected done (tombstoned), got %s", byNum[10].Status)
+	}
+	// #44: still open in GitHub → must remain open
+	if byNum[44].Status != "open" {
+		t.Errorf("issue #44: expected open (still active), got %s", byNum[44].Status)
+	}
+	// #72: was pr_open, not in openNums → must be tombstoned
+	if byNum[72].Status != "done" {
+		t.Errorf("issue #72: expected done (tombstoned), got %s", byNum[72].Status)
+	}
+	// #73: already done → must stay done, untouched
+	if byNum[73].Status != "done" {
+		t.Errorf("issue #73: expected done (preserved), got %s", byNum[73].Status)
+	}
+}
+
+// TestTombstoneFromOpenSet_SkipsInProgressAndClaimed ensures that claimed and
+// in_progress items are never tombstoned — they may be actively worked on even
+// when the issue was just recently closed by a merged PR.
+func TestTombstoneFromOpenSet_SkipsInProgressAndClaimed(t *testing.T) {
+	s, ctx := testStore(t)
+
+	repo := "AgentGuardHQ/octi-pulpo"
+	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
+
+	items := []SprintItem{
+		{Squad: "octi-pulpo", IssueNum: 55, Repo: repo, Title: "Claimed work", Priority: 1, Status: "claimed"},
+		{Squad: "octi-pulpo", IssueNum: 56, Repo: repo, Title: "In-flight work", Priority: 1, Status: "in_progress"},
+	}
+	for _, item := range items {
+		data, _ := json.Marshal(item)
+		s.rdb.Set(ctx, s.itemKey(repo, item.IssueNum), data, 0)
+	}
+
+	// Both items are absent from openNums (simulating recently-closed issues).
+	s.tombstoneFromOpenSet(ctx, repo, map[int]bool{})
+
+	all, _ := s.GetAll(ctx)
+	byNum := make(map[int]SprintItem, len(all))
+	for _, item := range all {
+		byNum[item.IssueNum] = item
+	}
+
+	if byNum[55].Status != "claimed" {
+		t.Errorf("issue #55: expected claimed (preserved), got %s", byNum[55].Status)
+	}
+	if byNum[56].Status != "in_progress" {
+		t.Errorf("issue #56: expected in_progress (preserved), got %s", byNum[56].Status)
+	}
+}
+
+// TestTombstoneFromOpenSet_EmptyStore is a no-op guard.
+func TestTombstoneFromOpenSet_EmptyStore(t *testing.T) {
+	s, ctx := testStore(t)
+	// No panic, no error when store has no items.
+	s.tombstoneFromOpenSet(ctx, "AgentGuardHQ/octi-pulpo", map[int]bool{1: true, 2: true})
+}
