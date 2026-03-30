@@ -393,15 +393,25 @@ func (s *Server) handleToolCall(req Request) Response {
 			return errorResp(req.ID, -32000, "sprint store not initialized")
 		}
 		var args struct {
-			Repo      string `json:"repo"`
-			IssueNum  int    `json:"issue_num"`
-			Title     string `json:"title"`
-			Priority  int    `json:"priority"`
-			DependsOn []int  `json:"depends_on"`
-			AssignTo  string `json:"assign_to"`
-			Squad     string `json:"squad"`
+			Repo                string `json:"repo"`
+			IssueNum            int    `json:"issue_num"`
+			Title               string `json:"title"`
+			Priority            int    `json:"priority"`
+			DependsOn           []int  `json:"depends_on"`
+			AssignTo            string `json:"assign_to"`
+			Squad               string `json:"squad"`
+			CreateGitHubIssue   bool   `json:"create_github_issue"`
+			Body                string `json:"body"`
+			Labels              string `json:"labels"`
 		}
 		json.Unmarshal(params.Arguments, &args)
+		if args.CreateGitHubIssue && args.Repo != "" && args.IssueNum == 0 {
+			num, err := sprint.CreateIssue(ctx, args.Repo, args.Title, args.Body, args.Labels)
+			if err != nil {
+				return errorResp(req.ID, -32000, fmt.Sprintf("create GitHub issue: %v", err))
+			}
+			args.IssueNum = num
+		}
 		item := sprint.SprintItem{
 			Repo:      args.Repo,
 			IssueNum:  args.IssueNum,
@@ -461,6 +471,7 @@ func (s *Server) handleToolCall(req Request) Response {
 		var args struct {
 			Repo     string `json:"repo"`
 			IssueNum int    `json:"issue_num"`
+			Summary  string `json:"summary"`
 		}
 		json.Unmarshal(params.Arguments, &args)
 		if args.IssueNum == 0 {
@@ -479,6 +490,13 @@ func (s *Server) handleToolCall(req Request) Response {
 						}
 						msg += fmt.Sprintf("; unblocked: %s", strings.Join(nums, ", "))
 					}
+					if args.Summary != "" {
+						if err := sprint.CloseIssue(ctx, repo, args.IssueNum, args.Summary); err != nil {
+							msg += fmt.Sprintf("; warning: could not close GitHub issue: %v", err)
+						} else {
+							msg += "; GitHub issue closed"
+						}
+					}
 					return textResult(req.ID, msg)
 				}
 			}
@@ -495,6 +513,13 @@ func (s *Server) handleToolCall(req Request) Response {
 				nums[i] = fmt.Sprintf("#%d", n)
 			}
 			msg += fmt.Sprintf("; unblocked: %s", strings.Join(nums, ", "))
+		}
+		if args.Summary != "" {
+			if err := sprint.CloseIssue(ctx, args.Repo, args.IssueNum, args.Summary); err != nil {
+				msg += fmt.Sprintf("; warning: could not close GitHub issue: %v", err)
+			} else {
+				msg += "; GitHub issue closed"
+			}
 		}
 		return textResult(req.ID, msg)
 
@@ -974,19 +999,22 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "sprint_create",
-			Description: "Manually create or upsert a sprint item. Use when an agent identifies work during brainstorm/research that should flow into the sprint backlog, or to pre-load items with explicit priority and dependency chains before sprint_sync runs.",
+			Description: "Manually create or upsert a sprint item. Use when an agent identifies work during brainstorm/research that should flow into the sprint backlog, or to pre-load items with explicit priority and dependency chains before sprint_sync runs. Set create_github_issue=true to also open a real GitHub issue.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"repo":       map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo)"},
-					"issue_num":  map[string]interface{}{"type": "number", "description": "GitHub issue number. Use 0 if not backed by a GitHub issue."},
-					"title":      map[string]string{"type": "string", "description": "Sprint item title"},
-					"priority":   map[string]interface{}{"type": "number", "enum": []int{0, 1, 2}, "description": "Priority: 0=P0 critical, 1=P1 high, 2=P2 normal"},
-					"depends_on": map[string]interface{}{"type": "array", "items": map[string]string{"type": "number"}, "description": "Issue numbers that must complete before this item can be dispatched"},
-					"assign_to":  map[string]string{"type": "string", "description": "Agent name to assign (e.g. sr-kernel-01). Leave empty for auto-dispatch."},
-					"squad":      map[string]string{"type": "string", "description": "Squad name. Inferred from repo if omitted."},
+					"repo":                 map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo)"},
+					"issue_num":            map[string]interface{}{"type": "number", "description": "GitHub issue number. Use 0 (or omit) when create_github_issue=true to let the tool assign one."},
+					"title":                map[string]string{"type": "string", "description": "Sprint item title"},
+					"priority":             map[string]interface{}{"type": "number", "enum": []int{0, 1, 2}, "description": "Priority: 0=P0 critical, 1=P1 high, 2=P2 normal"},
+					"depends_on":           map[string]interface{}{"type": "array", "items": map[string]string{"type": "number"}, "description": "Issue numbers that must complete before this item can be dispatched"},
+					"assign_to":            map[string]string{"type": "string", "description": "Agent name to assign (e.g. sr-kernel-01). Leave empty for auto-dispatch."},
+					"squad":                map[string]string{"type": "string", "description": "Squad name. Inferred from repo if omitted."},
+					"create_github_issue":  map[string]interface{}{"type": "boolean", "description": "When true, creates a real GitHub issue in the repo and uses the returned number. Only effective when issue_num is 0."},
+					"body":                 map[string]string{"type": "string", "description": "Issue body / description. Used only when create_github_issue=true."},
+					"labels":               map[string]string{"type": "string", "description": "Comma-separated label names to apply. Used only when create_github_issue=true."},
 				},
-				"required": []string{"repo", "issue_num", "title"},
+				"required": []string{"repo", "title"},
 			},
 		},
 		{
@@ -1004,12 +1032,13 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "sprint_complete",
-			Description: "Mark a sprint item as done. Unblocks any dependent items. Call after merging a PR or closing an issue outside of the normal sync cycle.",
+			Description: "Mark a sprint item as done and optionally close the GitHub issue with a comment. Unblocks any dependent items. Call after merging a PR or closing an issue outside of the normal sync cycle.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"issue_num": map[string]interface{}{"type": "number", "description": "GitHub issue number to mark done"},
 					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo). If omitted, all tracked repos are searched."},
+					"summary":   map[string]string{"type": "string", "description": "Optional run summary. When provided, closes the GitHub issue and posts this text as a comment. Leave empty to only update Redis without touching GitHub."},
 				},
 				"required": []string{"issue_num"},
 			},
