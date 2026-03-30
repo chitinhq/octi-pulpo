@@ -628,6 +628,35 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, tree)
 
+	case "circuit_reset":
+		var args struct {
+			Driver string `json:"driver"`
+			Note   string `json:"note"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Driver == "" {
+			return errorResp(req.ID, -32602, "driver is required")
+		}
+		// Capture previous state for the response message.
+		prev := routing.DriverHealth{Name: args.Driver}
+		for _, h := range s.router.HealthReport() {
+			if h.Name == args.Driver {
+				prev = h
+				break
+			}
+		}
+		newState, err := s.router.ForceClose(args.Driver)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		msg := fmt.Sprintf("circuit_reset: %s %s→CLOSED (failures %d→0)",
+			args.Driver, prev.CircuitState, prev.Failures)
+		if args.Note != "" {
+			msg += " — " + args.Note
+		}
+		data, _ := json.Marshal(newState)
+		return textResult(req.ID, msg+"\n"+string(data))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -963,6 +992,18 @@ func toolDefs() []ToolDef {
 					"all":   map[string]interface{}{"type": "boolean", "description": "Set true to return all squads' standups for today."},
 				},
 				"required": []string{},
+			},
+		},
+		{
+			Name:        "circuit_reset",
+			Description: "Manually reset a driver circuit breaker from OPEN to CLOSED. Use when you know a driver has recovered (e.g. budget refilled, rate-limit lifted, transient error resolved). Requires the driver to have an existing health file.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"driver": map[string]string{"type": "string", "description": "Driver name to reset (e.g. 'codex', 'copilot', 'gemini'). Must match an existing health file."},
+					"note":   map[string]string{"type": "string", "description": "Optional reason for the manual reset (logged in the response for audit purposes)."},
+				},
+				"required": []string{"driver"},
 			},
 		},
 	}

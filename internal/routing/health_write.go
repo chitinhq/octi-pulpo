@@ -45,6 +45,25 @@ func MarkDriverOpen(healthDir, driver string) error {
 	return WriteDriverHealthFile(healthDir, driver, hf)
 }
 
+// ForceCloseCircuit manually resets a driver circuit to CLOSED with zero failures.
+// Unlike MarkDriverSuccess, this always writes even if the circuit is already
+// CLOSED, making it suitable for operator overrides. The probed_at field is set
+// to the current time to record when the manual reset occurred.
+func ForceCloseCircuit(healthDir, driver string) error {
+	existing := ReadDriverHealth(healthDir, driver)
+	now := time.Now().UTC().Format(time.RFC3339)
+	hf := HealthFile{
+		State:       "CLOSED",
+		Failures:    0,
+		LastFailure: existing.LastFailure,
+		LastSuccess: now,
+		OpenedAt:    "",
+		ProbedAt:    now,
+		Updated:     now,
+	}
+	return WriteDriverHealthFile(healthDir, driver, hf)
+}
+
 // MarkDriverSuccess resets a driver circuit to CLOSED after a successful run.
 // Skips the write when the driver is already CLOSED with zero failures to
 // avoid unnecessary disk I/O on every healthy run.
