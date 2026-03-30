@@ -388,6 +388,34 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, strings.Join(synced, "\n"))
 
+	case "sprint_create":
+		if s.sprintStore == nil {
+			return errorResp(req.ID, -32000, "sprint store not initialized")
+		}
+		var args struct {
+			Repo      string `json:"repo"`
+			IssueNum  int    `json:"issue_num"`
+			Title     string `json:"title"`
+			Priority  int    `json:"priority"`
+			DependsOn []int  `json:"depends_on"`
+			AssignTo  string `json:"assign_to"`
+			Squad     string `json:"squad"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		item := sprint.SprintItem{
+			Repo:      args.Repo,
+			IssueNum:  args.IssueNum,
+			Title:     args.Title,
+			Priority:  args.Priority,
+			DependsOn: args.DependsOn,
+			AssignTo:  args.AssignTo,
+			Squad:     args.Squad,
+		}
+		if err := s.sprintStore.Create(ctx, item); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf("Sprint item created: %s#%d — %s (priority: %d)", args.Repo, args.IssueNum, args.Title, args.Priority))
+
 	case "sprint_reprioritize":
 		if s.sprintStore == nil {
 			return errorResp(req.ID, -32000, "sprint store not initialized")
@@ -872,6 +900,23 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "sprint_create",
+			Description: "Manually create or upsert a sprint item. Use when an agent identifies work during brainstorm/research that should flow into the sprint backlog, or to pre-load items with explicit priority and dependency chains before sprint_sync runs.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"repo":       map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo)"},
+					"issue_num":  map[string]interface{}{"type": "number", "description": "GitHub issue number. Use 0 if not backed by a GitHub issue."},
+					"title":      map[string]string{"type": "string", "description": "Sprint item title"},
+					"priority":   map[string]interface{}{"type": "number", "enum": []int{0, 1, 2}, "description": "Priority: 0=P0 critical, 1=P1 high, 2=P2 normal"},
+					"depends_on": map[string]interface{}{"type": "array", "items": map[string]string{"type": "number"}, "description": "Issue numbers that must complete before this item can be dispatched"},
+					"assign_to":  map[string]string{"type": "string", "description": "Agent name to assign (e.g. sr-kernel-01). Leave empty for auto-dispatch."},
+					"squad":      map[string]string{"type": "string", "description": "Squad name. Inferred from repo if omitted."},
+				},
+				"required": []string{"repo", "issue_num", "title"},
 			},
 		},
 		{
