@@ -341,6 +341,41 @@ func (s *Server) handleToolCall(req Request) Response {
 		data, _ := json.Marshal(result)
 		return textResult(req.ID, string(data))
 
+	case "sprint_create":
+		if s.sprintStore == nil {
+			return errorResp(req.ID, -32000, "sprint store not initialized")
+		}
+		var args struct {
+			Repo      string `json:"repo"`
+			IssueNum  int    `json:"issue_num"`
+			Title     string `json:"title"`
+			Priority  int    `json:"priority"`
+			DependsOn []int  `json:"depends_on"`
+			AssignTo  string `json:"assign_to"`
+			Squad     string `json:"squad"`
+		}
+		if err := json.Unmarshal(params.Arguments, &args); err != nil {
+			return errorResp(req.ID, -32602, "invalid arguments: "+err.Error())
+		}
+		item := sprint.SprintItem{
+			Repo:      args.Repo,
+			IssueNum:  args.IssueNum,
+			Title:     args.Title,
+			Priority:  args.Priority,
+			DependsOn: args.DependsOn,
+			AssignTo:  args.AssignTo,
+			Squad:     args.Squad,
+		}
+		if err := s.sprintStore.Create(ctx, item); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		priorityLabel := [3]string{"P0", "P1", "P2"}
+		label := fmt.Sprintf("P%d", args.Priority)
+		if args.Priority >= 0 && args.Priority <= 2 {
+			label = priorityLabel[args.Priority]
+		}
+		return textResult(req.ID, fmt.Sprintf("created %s#%d: %q (%s)", args.Repo, args.IssueNum, args.Title, label))
+
 	case "sprint_status":
 		if s.sprintStore == nil {
 			return errorResp(req.ID, -32000, "sprint store not initialized")
@@ -810,6 +845,23 @@ func toolDefs() []ToolDef {
 					"priority": map[string]interface{}{"type": "number", "description": "Priority (0=critical, 1=high, 2=normal, 3=background). Default: 1"},
 				},
 				"required": []string{"agent"},
+			},
+		},
+		{
+			Name:        "sprint_create",
+			Description: "Manually add or replace a sprint item in Redis. Use to pre-load issues with explicit priorities and dependency chains before sprint_sync runs, or to create items not derived from GitHub.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"repo":       map[string]interface{}{"type": "string", "description": "GitHub repo in owner/name format (e.g. AgentGuardHQ/octi-pulpo)"},
+					"issue_num":  map[string]interface{}{"type": "number", "description": "GitHub issue number"},
+					"title":      map[string]interface{}{"type": "string", "description": "Short title for the sprint item"},
+					"priority":   map[string]interface{}{"type": "number", "enum": []int{0, 1, 2}, "description": "Priority: 0=P0 critical, 1=P1 high, 2=P2 normal (default 2)"},
+					"depends_on": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "number"}, "description": "Issue numbers that must be done before this item can be dispatched"},
+					"assign_to":  map[string]interface{}{"type": "string", "description": "Agent name or GitHub login to assign this item to"},
+					"squad":      map[string]interface{}{"type": "string", "description": "Squad name. If omitted, inferred from repo."},
+				},
+				"required": []string{"repo", "issue_num", "title"},
 			},
 		},
 		{

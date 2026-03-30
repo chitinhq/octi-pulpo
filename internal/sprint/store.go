@@ -579,6 +579,39 @@ func (s *Store) Complete(ctx context.Context, repo string, issueNum int) (unbloc
 	return unblocked, nil
 }
 
+// Create manually inserts or replaces a sprint item in Redis.
+// repo and issue_num are required; title is required; squad is inferred from repo if empty.
+// status defaults to "open" if not provided.
+func (s *Store) Create(ctx context.Context, item SprintItem) error {
+	if item.Repo == "" {
+		return fmt.Errorf("repo is required")
+	}
+	if item.IssueNum == 0 {
+		return fmt.Errorf("issue_num is required")
+	}
+	if item.Title == "" {
+		return fmt.Errorf("title is required")
+	}
+	if item.Squad == "" {
+		item.Squad = inferSquadFromRepo(item.Repo)
+	}
+	if item.Status == "" {
+		item.Status = "open"
+	}
+	item.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	data, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+
+	pipe := s.rdb.Pipeline()
+	pipe.Set(ctx, s.itemKey(item.Repo, item.IssueNum), data, 0)
+	pipe.SAdd(ctx, s.key("sprint-repos"), item.Repo)
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
 func (s *Store) itemKey(repo string, issueNum int) string {
 	return s.namespace + ":sprint:" + repo + ":" + strconv.Itoa(issueNum)
 }

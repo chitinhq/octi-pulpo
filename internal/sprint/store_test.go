@@ -463,6 +463,156 @@ func TestStore_Complete_UnblocksDependent(t *testing.T) {
 	}
 }
 
+func TestStore_Create_Basic(t *testing.T) {
+	s, ctx := testStore(t)
+
+	item := SprintItem{
+		Repo:     "AgentGuardHQ/octi-pulpo",
+		IssueNum: 99,
+		Title:    "Manual sprint item",
+		Priority: 1,
+	}
+	if err := s.Create(ctx, item); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	all, err := s.GetAll(ctx)
+	if err != nil {
+		t.Fatalf("get all: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(all))
+	}
+	got := all[0]
+	if got.IssueNum != 99 {
+		t.Errorf("issue_num: got %d, want 99", got.IssueNum)
+	}
+	if got.Title != "Manual sprint item" {
+		t.Errorf("title: got %q, want %q", got.Title, "Manual sprint item")
+	}
+	if got.Priority != 1 {
+		t.Errorf("priority: got %d, want 1", got.Priority)
+	}
+	if got.Squad != "octi-pulpo" {
+		t.Errorf("squad: got %q, want octi-pulpo (inferred)", got.Squad)
+	}
+	if got.Status != "open" {
+		t.Errorf("status: got %q, want open (default)", got.Status)
+	}
+	if got.UpdatedAt == "" {
+		t.Error("updated_at should be set")
+	}
+}
+
+func TestStore_Create_WithDependencies(t *testing.T) {
+	s, ctx := testStore(t)
+
+	item := SprintItem{
+		Repo:      "AgentGuardHQ/agentguard",
+		IssueNum:  50,
+		Title:     "Feature with deps",
+		Priority:  0,
+		DependsOn: []int{10, 20},
+		AssignTo:  "kernel-sr",
+		Squad:     "kernel",
+	}
+	if err := s.Create(ctx, item); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	all, _ := s.GetAll(ctx)
+	if len(all) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(all))
+	}
+	got := all[0]
+	if len(got.DependsOn) != 2 || got.DependsOn[0] != 10 || got.DependsOn[1] != 20 {
+		t.Errorf("depends_on: got %v, want [10 20]", got.DependsOn)
+	}
+	if got.AssignTo != "kernel-sr" {
+		t.Errorf("assign_to: got %q, want kernel-sr", got.AssignTo)
+	}
+	if got.Squad != "kernel" {
+		t.Errorf("squad: got %q, want kernel (explicit)", got.Squad)
+	}
+}
+
+func TestStore_Create_ReplacesExisting(t *testing.T) {
+	s, ctx := testStore(t)
+
+	repo := "AgentGuardHQ/octi-pulpo"
+	original := SprintItem{
+		Repo: repo, IssueNum: 10, Title: "Old title", Priority: 2, Status: "open",
+	}
+	if err := s.Create(ctx, original); err != nil {
+		t.Fatalf("create original: %v", err)
+	}
+
+	updated := SprintItem{
+		Repo: repo, IssueNum: 10, Title: "New title", Priority: 0, Squad: "octi-pulpo",
+	}
+	if err := s.Create(ctx, updated); err != nil {
+		t.Fatalf("create updated: %v", err)
+	}
+
+	all, _ := s.GetAll(ctx)
+	if len(all) != 1 {
+		t.Fatalf("expected 1 item after upsert, got %d", len(all))
+	}
+	if all[0].Title != "New title" {
+		t.Errorf("expected 'New title', got %q", all[0].Title)
+	}
+	if all[0].Priority != 0 {
+		t.Errorf("expected priority 0, got %d", all[0].Priority)
+	}
+}
+
+func TestStore_Create_ValidationErrors(t *testing.T) {
+	s, ctx := testStore(t)
+
+	cases := []struct {
+		name string
+		item SprintItem
+	}{
+		{"missing repo", SprintItem{IssueNum: 1, Title: "t"}},
+		{"missing issue_num", SprintItem{Repo: "AgentGuardHQ/octi-pulpo", Title: "t"}},
+		{"missing title", SprintItem{Repo: "AgentGuardHQ/octi-pulpo", IssueNum: 1}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := s.Create(ctx, tc.item); err == nil {
+				t.Fatalf("expected error for %s, got nil", tc.name)
+			}
+		})
+	}
+}
+
+func TestStore_Create_DispatchableAfterCreate(t *testing.T) {
+	s, ctx := testStore(t)
+
+	// Create a P0 item with no deps — should appear in NextDispatchable
+	item := SprintItem{
+		Repo:     "AgentGuardHQ/shellforge",
+		IssueNum: 77,
+		Title:    "Critical fix",
+		Priority: 0,
+	}
+	if err := s.Create(ctx, item); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	dispatchable, err := s.NextDispatchable(ctx)
+	if err != nil {
+		t.Fatalf("next dispatchable: %v", err)
+	}
+	if len(dispatchable) != 1 {
+		t.Fatalf("expected 1 dispatchable, got %d", len(dispatchable))
+	}
+	if dispatchable[0].IssueNum != 77 {
+		t.Fatalf("expected issue #77, got #%d", dispatchable[0].IssueNum)
+	}
+}
+
 func TestInferSquadFromRepo(t *testing.T) {
 	tests := []struct {
 		repo  string
