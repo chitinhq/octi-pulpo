@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -147,7 +149,7 @@ func (bs *BudgetStore) CheckAndIncrement(ctx context.Context, agent string, cost
 		isCritical = 1
 	}
 
-	timestamp := "2026-03-30T00:00:00Z" // default; in production use time.Now()
+	timestamp := time.Now().UTC().Format(time.RFC3339)
 	result, err := checkAndIncrementScript.Run(ctx, bs.rdb,
 		[]string{bs.key(agent)},
 		costCents, threshold, timestamp, isCritical,
@@ -171,6 +173,37 @@ func (bs *BudgetStore) MonthlyReset(ctx context.Context, agent string) error {
 	budget.Paused = false
 
 	return bs.SetBudget(ctx, budget)
+}
+
+// ListBudgets returns all agent budgets stored in Redis under this namespace.
+func (bs *BudgetStore) ListBudgets(ctx context.Context) ([]AgentBudget, error) {
+	pattern := bs.namespace + ":budget:*"
+	var keys []string
+	var cursor uint64
+	for {
+		var batch []string
+		var err error
+		batch, cursor, err = bs.rdb.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return nil, fmt.Errorf("scan budget keys: %w", err)
+		}
+		keys = append(keys, batch...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	budgets := make([]AgentBudget, 0, len(keys))
+	prefix := bs.namespace + ":budget:"
+	for _, k := range keys {
+		agent := strings.TrimPrefix(k, prefix)
+		b, err := bs.GetBudget(ctx, agent)
+		if err != nil {
+			continue
+		}
+		budgets = append(budgets, b)
+	}
+	return budgets, nil
 }
 
 // key returns a namespaced Redis key for agent budgets.

@@ -628,6 +628,86 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, tree)
 
+	case "budget_status":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args struct {
+			Agent string `json:"agent"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Agent != "" {
+			b, err := s.budgetStore.GetBudget(ctx, args.Agent)
+			if err != nil {
+				return errorResp(req.ID, -32000, err.Error())
+			}
+			data, _ := json.Marshal(b)
+			return textResult(req.ID, string(data))
+		}
+		budgets, err := s.budgetStore.ListBudgets(ctx)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if len(budgets) == 0 {
+			return textResult(req.ID, "No agent budgets found.")
+		}
+		data, _ := json.Marshal(budgets)
+		return textResult(req.ID, string(data))
+
+	case "budget_set":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args struct {
+			Agent              string `json:"agent"`
+			Driver             string `json:"driver"`
+			Box                string `json:"box"`
+			BudgetMonthlyCents int    `json:"budget_monthly_cents"`
+			Paused             bool   `json:"paused"`
+		}
+		if err := json.Unmarshal(params.Arguments, &args); err != nil {
+			return errorResp(req.ID, -32602, "invalid arguments")
+		}
+		if args.Agent == "" {
+			return errorResp(req.ID, -32602, "agent is required")
+		}
+		if args.BudgetMonthlyCents <= 0 {
+			return errorResp(req.ID, -32602, "budget_monthly_cents must be positive")
+		}
+		b := budget.AgentBudget{
+			Agent:              args.Agent,
+			Driver:             args.Driver,
+			Box:                args.Box,
+			BudgetMonthlyCents: args.BudgetMonthlyCents,
+			Paused:             args.Paused,
+		}
+		// Preserve existing spent/runs if the budget already exists.
+		if existing, err := s.budgetStore.GetBudget(ctx, args.Agent); err == nil {
+			b.SpentMonthlyCents = existing.SpentMonthlyCents
+			b.RunsThisMonth = existing.RunsThisMonth
+			b.LastRunAt = existing.LastRunAt
+		}
+		if err := s.budgetStore.SetBudget(ctx, b); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf("Budget set for %s: %d cents/month", args.Agent, args.BudgetMonthlyCents))
+
+	case "budget_reset":
+		if s.budgetStore == nil {
+			return errorResp(req.ID, -32000, "budget store not initialized")
+		}
+		var args struct {
+			Agent string `json:"agent"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Agent == "" {
+			return errorResp(req.ID, -32602, "agent is required")
+		}
+		if err := s.budgetStore.MonthlyReset(ctx, args.Agent); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf("Budget reset for %s: spent and runs zeroed, unpaused.", args.Agent))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -963,6 +1043,42 @@ func toolDefs() []ToolDef {
 					"all":   map[string]interface{}{"type": "boolean", "description": "Set true to return all squads' standups for today."},
 				},
 				"required": []string{},
+			},
+		},
+		{
+			Name:        "budget_status",
+			Description: "Show per-agent monthly budget: limit, spent, runs, paused state, and last run timestamp. Pass agent name to get a single agent; omit to list all.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent": map[string]string{"type": "string", "description": "Agent name (e.g. 'sr-kernel-01'). Omit to list all agents."},
+				},
+			},
+		},
+		{
+			Name:        "budget_set",
+			Description: "Create or update an agent's monthly budget. Preserves existing spent/runs when updating.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent":                map[string]string{"type": "string", "description": "Agent name (e.g. 'sr-kernel-01')"},
+					"budget_monthly_cents": map[string]interface{}{"type": "number", "description": "Monthly budget in cents (e.g. 770 = $7.70)"},
+					"driver":               map[string]string{"type": "string", "description": "Driver name (e.g. 'claude-code', 'codex')"},
+					"box":                  map[string]string{"type": "string", "description": "Box/host name (e.g. 'jared')"},
+					"paused":               map[string]interface{}{"type": "boolean", "description": "Pause this agent (blocks all non-CRITICAL runs)"},
+				},
+				"required": []string{"agent", "budget_monthly_cents"},
+			},
+		},
+		{
+			Name:        "budget_reset",
+			Description: "Reset an agent's monthly budget counters: zeroes spent and run count, clears paused flag. Use at the start of each billing cycle.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"agent": map[string]string{"type": "string", "description": "Agent name to reset (e.g. 'sr-kernel-01')"},
+				},
+				"required": []string{"agent"},
 			},
 		},
 	}
