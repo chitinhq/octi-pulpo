@@ -212,6 +212,39 @@ func TestCheckAndIncrement_PriorityThresholds(t *testing.T) {
 	}
 }
 
+func TestListAll(t *testing.T) {
+	bs, ctx := budgetTestSetup(t)
+
+	agents := []AgentBudget{
+		{Agent: "list-agent-01", Driver: "claude-code", Box: "jared", BudgetMonthlyCents: 500},
+		{Agent: "list-agent-02", Driver: "copilot", Box: "readybench", BudgetMonthlyCents: 300},
+		{Agent: "list-agent-03", Driver: "codex", Box: "jared", BudgetMonthlyCents: 200},
+	}
+	for _, b := range agents {
+		if err := bs.SetBudget(ctx, b); err != nil {
+			t.Fatalf("set budget %s: %v", b.Agent, err)
+		}
+	}
+
+	all, err := bs.ListAll(ctx)
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Errorf("expected 3 budgets, got %d", len(all))
+	}
+
+	found := make(map[string]bool)
+	for _, b := range all {
+		found[b.Agent] = true
+	}
+	for _, b := range agents {
+		if !found[b.Agent] {
+			t.Errorf("missing agent %s in ListAll result", b.Agent)
+		}
+	}
+}
+
 func TestMonthlyReset(t *testing.T) {
 	bs, ctx := budgetTestSetup(t)
 
