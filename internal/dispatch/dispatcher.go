@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/redis/go-redis/v9"
@@ -40,7 +41,8 @@ type Dispatcher struct {
 	coord     *coordination.Engine
 	events    *EventRouter
 	profiles  *ProfileStore // adaptive cooldowns (nil = use static)
-	queueFile string        // ~/.agentguard/queue.txt (compatibility bridge)
+	budget    *budget.BudgetStore // per-agent budget check (nil = skip)
+	queueFile string              // ~/.agentguard/queue.txt (compatibility bridge)
 	namespace string
 }
 
@@ -106,6 +108,20 @@ func (d *Dispatcher) DispatchBudget(ctx context.Context, event Event, agentName 
 		result.Reason = "agent already has active claim (another instance running)"
 		d.recordDispatch(ctx, agentName, event, result)
 		return result, nil
+	}
+
+	// 2.5 Check per-agent budget (if budget store is configured)
+	if d.budget != nil {
+		allowed, budgetErr := d.budget.CheckAndIncrement(ctx, agentName, 10, priorityStr(priority))
+		if budgetErr != nil {
+			// Budget check failed — fail-open (don't block on budget errors)
+			_ = budgetErr
+		} else if !allowed {
+			result.Action = "skipped"
+			result.Reason = "budget exhausted or below priority threshold"
+			d.recordDispatch(ctx, agentName, event, result)
+			return result, nil
+		}
 	}
 
 	// 3. Check driver health/budget — budget level determined by caller (dynamic or explicit)
@@ -297,6 +313,11 @@ func (d *Dispatcher) SetProfiles(ps *ProfileStore) {
 	d.profiles = ps
 }
 
+// SetBudget enables per-agent budget checking in the dispatch pipeline.
+func (d *Dispatcher) SetBudget(b *budget.BudgetStore) {
+	d.budget = b
+}
+
 // RedisClient returns the underlying Redis client (for workers that need direct queue access).
 func (d *Dispatcher) RedisClient() *redis.Client {
 	return d.rdb
@@ -334,4 +355,18 @@ func (d *Dispatcher) recordDispatch(ctx context.Context, agentName string, event
 
 func (d *Dispatcher) key(suffix string) string {
 	return d.namespace + ":" + suffix
+}
+
+// priorityStr converts a numeric priority to the string budget priorities use.
+func priorityStr(priority int) string {
+	switch {
+	case priority == 0:
+		return "CRITICAL"
+	case priority == 1:
+		return "HIGH"
+	case priority <= 2:
+		return "NORMAL"
+	default:
+		return "BACKGROUND"
+	}
 }
