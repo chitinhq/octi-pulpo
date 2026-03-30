@@ -664,7 +664,7 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "benchmark_status",
-			Description: "Return swarm throughput metrics: PRs/hour, commits/run, waste %, budget efficiency, active agents, queue depth, pass rate.",
+			Description: "Return swarm throughput and health metrics: PRs/hour, commits/run, waste %, budget efficiency, active agents, queue depth, pass rate, and QAI-X composite health index (0-100).",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},

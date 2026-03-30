@@ -58,6 +58,61 @@ func TestBenchmarkTracker_Compute_WithResults(t *testing.T) {
 	}
 }
 
+func TestBenchmarkTracker_QAIX_NoKernelHealth(t *testing.T) {
+	d, ctx := testSetup(t)
+	bt := NewBenchmarkTracker(d.rdb, d.namespace)
+
+	now := time.Now()
+	results := []workerResult{
+		{Agent: "kernel-sr", ExitCode: 0, DurationSec: 120, Timestamp: now.Format(time.RFC3339)},
+		{Agent: "cloud-sr", ExitCode: 0, DurationSec: 90, Timestamp: now.Add(-5 * time.Minute).Format(time.RFC3339)},
+	}
+	key := d.namespace + ":worker-results"
+	for _, r := range results {
+		data, _ := json.Marshal(r)
+		d.rdb.LPush(ctx, key, data)
+	}
+
+	m, err := bt.Compute(ctx)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+
+	if m.QAIX == 0 {
+		t.Error("expected non-zero QAI-X even without kernel health key")
+	}
+	if m.QAIX < 0 || m.QAIX > 100 {
+		t.Errorf("QAI-X should be 0-100, got %.1f", m.QAIX)
+	}
+}
+
+func TestBenchmarkTracker_QAIX_WithKernelHealth(t *testing.T) {
+	d, ctx := testSetup(t)
+	bt := NewBenchmarkTracker(d.rdb, d.namespace)
+
+	now := time.Now()
+	results := []workerResult{
+		{Agent: "kernel-sr", ExitCode: 0, DurationSec: 120, Timestamp: now.Format(time.RFC3339)},
+	}
+	key := d.namespace + ":worker-results"
+	for _, r := range results {
+		data, _ := json.Marshal(r)
+		d.rdb.LPush(ctx, key, data)
+	}
+
+	kernelHealth := `{"avg_confidence":0.92,"escalation_state":"NORMAL","denial_rate":0.02}`
+	d.rdb.Set(ctx, d.namespace+":kernel-health", kernelHealth, 0)
+
+	m, err := bt.Compute(ctx)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+
+	if m.QAIX < 70 {
+		t.Errorf("expected healthy QAI-X with good signals, got %.1f", m.QAIX)
+	}
+}
+
 func TestContainsAny(t *testing.T) {
 	if !containsAny("pr-merger-agent", "pr-merger") {
 		t.Fatal("expected match for pr-merger")

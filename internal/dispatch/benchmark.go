@@ -16,7 +16,24 @@ type Metrics struct {
 	BudgetEfficiency float64 `json:"budget_efficiency"`   // commits per dollar (estimate)
 	ActiveAgents     int     `json:"active_agents"`
 	QueueDepth       int64   `json:"queue_depth"`
-	PassRate         float64 `json:"pass_rate"`
+	PassRate         float64      `json:"pass_rate"`
+	QAIX             float64      `json:"qaix"`
+	QAIXBreakdown    *QAIXSignals `json:"qaix_breakdown,omitempty"`
+}
+
+// QAIXSignals breaks down the individual signals that compose the QAI-X score.
+type QAIXSignals struct {
+	PassRate        float64 `json:"pass_rate"`
+	WasteInverted   float64 `json:"waste_inverted"`
+	AvgConfidence   float64 `json:"avg_confidence"`
+	EscalationState float64 `json:"escalation_state"`
+	PRsNormalized   float64 `json:"prs_normalized"`
+}
+
+type kernelHealth struct {
+	AvgConfidence   float64 `json:"avg_confidence"`
+	EscalationState string  `json:"escalation_state"`
+	DenialRate      float64 `json:"denial_rate"`
 }
 
 // BenchmarkTracker computes throughput metrics from worker results stored in Redis.
@@ -133,6 +150,22 @@ func (bt *BenchmarkTracker) Compute(ctx context.Context) (Metrics, error) {
 	}
 	m.ActiveAgents = len(agentSet)
 
+	// QAI-X composite health index
+	kh := bt.readKernelHealth(ctx)
+	signals := QAIXSignals{
+		PassRate:        m.PassRate,
+		WasteInverted:   1.0 - (m.WastePercent / 100.0),
+		AvgConfidence:   kh.AvgConfidence,
+		EscalationState: escalationScore(kh.EscalationState),
+		PRsNormalized:   clamp01(m.PRsPerHour / 2.0),
+	}
+	m.QAIX = (signals.PassRate*0.30 +
+		signals.WasteInverted*0.20 +
+		signals.AvgConfidence*0.20 +
+		signals.EscalationState*0.15 +
+		signals.PRsNormalized*0.15) * 100
+	m.QAIXBreakdown = &signals
+
 	return m, nil
 }
 
@@ -149,4 +182,41 @@ func containsAny(s string, substrs ...string) bool {
 		}
 	}
 	return false
+}
+
+func (bt *BenchmarkTracker) readKernelHealth(ctx context.Context) kernelHealth {
+	raw, err := bt.rdb.Get(ctx, bt.key("kernel-health")).Result()
+	if err != nil {
+		return kernelHealth{AvgConfidence: 0.5, EscalationState: "NORMAL"}
+	}
+	var kh kernelHealth
+	if err := json.Unmarshal([]byte(raw), &kh); err != nil {
+		return kernelHealth{AvgConfidence: 0.5, EscalationState: "NORMAL"}
+	}
+	return kh
+}
+
+func escalationScore(state string) float64 {
+	switch state {
+	case "NORMAL":
+		return 1.0
+	case "ELEVATED":
+		return 0.7
+	case "HIGH":
+		return 0.3
+	case "LOCKDOWN":
+		return 0.0
+	default:
+		return 0.5
+	}
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
