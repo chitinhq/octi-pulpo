@@ -88,6 +88,7 @@ func main() {
 	server.SetSprintStore(sprintStore)
 	server.SetBenchmark(benchmark)
 	server.SetProfileStore(profiles)
+	server.SetRedis(rdb, namespace)
 
 	// Optional HTTP mode: run webhook server alongside MCP
 	httpPort := os.Getenv("OCTI_HTTP_PORT")
