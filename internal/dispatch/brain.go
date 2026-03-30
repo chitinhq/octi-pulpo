@@ -44,6 +44,7 @@ type LeverageAction struct {
 //   - Driver health probe: ping each driver every 15 min to detect stale state
 //   - Slack notifications: periodic budget dashboard + driver state change alerts
 //   - Daily standup: post unified squad standup to Slack once per day
+//   - Self-heal: detect stuck agents (triage flag) + inactive squads, alert CTO
 type Brain struct {
 	dispatcher        *Dispatcher
 	chains            ChainConfig
@@ -60,17 +61,24 @@ type Brain struct {
 	dashboardPeriod   time.Duration
 	lastStandupDate   string // YYYY-MM-DD, guards once-per-day posting
 	driversWereDown   bool   // tracks transition for edge-triggered alerts
+
+	// Self-heal dedup: tracks when each agent/squad was last alerted to avoid
+	// flooding Slack on every tick. Keys are agent names or squad names.
+	stuckAgentAlerted    map[string]time.Time
+	inactiveSquadAlerted map[string]time.Time
 }
 
 // NewBrain creates a dispatch brain.
 func NewBrain(dispatcher *Dispatcher, chains ChainConfig) *Brain {
 	return &Brain{
-		dispatcher:      dispatcher,
-		chains:          chains,
-		tickInterval:    60 * time.Second,
-		probeInterval:   15 * time.Minute,
-		dashboardPeriod: 4 * time.Hour,
-		log:             log.New(os.Stderr, "brain: ", log.LstdFlags),
+		dispatcher:           dispatcher,
+		chains:               chains,
+		tickInterval:         60 * time.Second,
+		probeInterval:        15 * time.Minute,
+		dashboardPeriod:      4 * time.Hour,
+		log:                  log.New(os.Stderr, "brain: ", log.LstdFlags),
+		stuckAgentAlerted:    make(map[string]time.Time),
+		inactiveSquadAlerted: make(map[string]time.Time),
 	}
 }
 
@@ -134,7 +142,10 @@ func (b *Brain) Tick(ctx context.Context) {
 	// 5. Daily standup (once per calendar day)
 	b.maybePostDailyStandup(ctx)
 
-	// 6. Constraint-driven dispatch (if sprint store is available)
+	// 6. Self-heal: stuck agents + inactive squads
+	b.maybeSelfHeal(ctx)
+
+	// 7. Constraint-driven dispatch (if sprint store is available)
 	if b.sprintStore != nil {
 		constraint := b.identifyConstraint(ctx)
 		b.maybeNotifyConstraintChange(ctx, constraint)
@@ -305,6 +316,94 @@ func (b *Brain) maybePostDailyStandup(ctx context.Context) {
 		return
 	}
 	b.lastStandupDate = today
+}
+
+// maybeSelfHeal runs Phase 2 adaptive recovery checks on every tick:
+//
+//  1. Stuck agents: agents with TriageFlag=true get a Slack alert (at most once per 12h).
+//  2. Inactive squads: squads with no dispatch activity in the last 24h get a Slack alert
+//     (at most once per 24h). Activity is determined from the dispatch log.
+func (b *Brain) maybeSelfHeal(ctx context.Context) {
+	if b.profiles == nil {
+		return
+	}
+
+	b.checkStuckAgents(ctx)
+	b.checkInactiveSquads(ctx)
+}
+
+// checkStuckAgents scans all agent profiles for triage-flagged agents and fires
+// a one-time Slack alert (per 12h window) for each.
+func (b *Brain) checkStuckAgents(ctx context.Context) {
+	profiles, err := b.profiles.AllProfiles(ctx)
+	if err != nil {
+		b.log.Printf("self-heal: list profiles: %v", err)
+		return
+	}
+
+	for _, p := range profiles {
+		if !p.TriageFlag {
+			continue
+		}
+		// Deduplicate: alert at most once per 12h per agent.
+		if last, ok := b.stuckAgentAlerted[p.Name]; ok && time.Since(last) < 12*time.Hour {
+			continue
+		}
+		b.log.Printf("self-heal: stuck agent %s (%d consecutive failures) — alerting", p.Name, p.ConsecutiveFails)
+		b.stuckAgentAlerted[p.Name] = time.Now()
+
+		if b.notifier != nil && b.notifier.Enabled() {
+			if err := b.notifier.PostStuckAgentAlert(ctx, p.Name, p.ConsecutiveFails); err != nil {
+				b.log.Printf("self-heal: slack alert for %s: %v", p.Name, err)
+			}
+		}
+	}
+}
+
+// checkInactiveSquads inspects the recent dispatch log and alerts when a squad
+// has had no dispatch activity for more than 24 hours.
+func (b *Brain) checkInactiveSquads(ctx context.Context) {
+	records, err := b.dispatcher.RecentDispatches(ctx, 200)
+	if err != nil || len(records) == 0 {
+		return
+	}
+
+	// Build the most recent dispatch timestamp per squad.
+	lastActivity := make(map[string]time.Time)
+	for _, rec := range records {
+		squad := inferSquad(rec.Agent)
+		if squad == "" {
+			continue
+		}
+		ts, err := time.Parse(time.RFC3339, rec.Timestamp)
+		if err != nil {
+			continue
+		}
+		if ts.After(lastActivity[squad]) {
+			lastActivity[squad] = ts
+		}
+	}
+
+	threshold := 24 * time.Hour
+	for squad, last := range lastActivity {
+		idle := time.Since(last)
+		if idle < threshold {
+			continue
+		}
+		// Deduplicate: alert at most once per 24h per squad.
+		if alertedAt, ok := b.inactiveSquadAlerted[squad]; ok && time.Since(alertedAt) < 24*time.Hour {
+			continue
+		}
+		idleHours := int(idle.Hours())
+		b.log.Printf("self-heal: inactive squad %s (idle %dh) — alerting", squad, idleHours)
+		b.inactiveSquadAlerted[squad] = time.Now()
+
+		if b.notifier != nil && b.notifier.Enabled() {
+			if err := b.notifier.PostInactiveSquadAlert(ctx, squad, idleHours); err != nil {
+				b.log.Printf("self-heal: slack alert for squad %s: %v", squad, err)
+			}
+		}
+	}
 }
 
 // maybeNotifyConstraintChange fires edge-triggered Slack alerts when driver
