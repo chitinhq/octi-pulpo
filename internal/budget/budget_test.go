@@ -43,6 +43,19 @@ func budgetTestSetup(t *testing.T) (*BudgetStore, context.Context) {
 	return NewBudgetStore(rdb, ns), ctx
 }
 
+func TestCheckAndIncrement_NoBudgetRecord(t *testing.T) {
+	bs, ctx := budgetTestSetup(t)
+
+	// Agent with no budget record should be allowed — budget enforcement is opt-in.
+	allowed, err := bs.CheckAndIncrement(ctx, "unregistered-agent", 50, "NORMAL")
+	if err != nil {
+		t.Fatalf("check and increment: %v", err)
+	}
+	if !allowed {
+		t.Fatal("expected allowed=true when no budget record exists (opt-in enforcement)")
+	}
+}
+
 func TestCheckAndIncrement_Allowed(t *testing.T) {
 	bs, ctx := budgetTestSetup(t)
 

@@ -882,6 +882,7 @@ func toolDefs() []ToolDef {
 				"properties": map[string]interface{}{
 					"agent":    map[string]string{"type": "string", "description": "Agent name to trigger"},
 					"priority": map[string]interface{}{"type": "number", "description": "Priority (0=critical, 1=high, 2=normal, 3=background). Default: 1"},
+					"budget":   map[string]interface{}{"type": "string", "enum": []string{"low", "medium", "high"}, "description": "Budget tier override — low (local only), medium (local+subscription+cli), high (all). Omit to use dynamic routing."},
 				},
 				"required": []string{"agent"},
 			},

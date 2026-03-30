@@ -53,10 +53,11 @@ func NewBudgetStore(rdb *redis.Client, namespace string) *BudgetStore {
 // ARGV[4] = is_critical (1 or 0)
 //
 // Returns 1 if allowed, 0 if denied.
+// If no budget record exists the agent is allowed — budget enforcement is opt-in.
 var checkAndIncrementScript = redis.NewScript(`
 local raw = redis.call('GET', KEYS[1])
 if not raw then
-  return 0
+  return 1
 end
 
 local data = cjson.decode(raw)
