@@ -189,6 +189,7 @@ func TestToolDefs_ContainsExpectedTools(t *testing.T) {
 		"sprint_sync",
 		"benchmark_status",
 		"agent_leaderboard",
+		"circuit_reset",
 	}
 
 	defs := toolDefs()
