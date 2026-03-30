@@ -262,8 +262,10 @@ func (b *Brain) probeOneDriver(ctx context.Context, driver string) (bool, string
 	return true, output
 }
 
-// maybePostDashboard posts a Slack budget dashboard at most once per dashboardPeriod.
-// It reads live driver health and cumulative worker counters from Redis.
+// maybePostDashboard posts a Slack status digest at most once per dashboardPeriod.
+// When a sprint store is wired, it sends PostSprintDigest (drivers + pass rate +
+// sprint progress + open PRs + blockers). Otherwise it falls back to the
+// simpler PostBudgetDashboard (drivers + pass rate only).
 func (b *Brain) maybePostDashboard(ctx context.Context) {
 	if b.notifier == nil || !b.notifier.Enabled() {
 		return
@@ -280,6 +282,21 @@ func (b *Brain) maybePostDashboard(ctx context.Context) {
 	failStr, _ := rdb.Get(ctx, ns+":worker-fail").Result()
 	ok, _ := strconv.ParseInt(okStr, 10, 64)
 	fail, _ := strconv.ParseInt(failStr, 10, 64)
+
+	if b.sprintStore != nil {
+		items, err := b.sprintStore.GetAll(ctx)
+		if err != nil {
+			b.log.Printf("sprint digest: get all: %v", err)
+			// fall through to budget-only dashboard
+		} else {
+			if err := b.notifier.PostSprintDigest(ctx, drivers, ok, fail, items); err != nil {
+				b.log.Printf("slack sprint digest: %v", err)
+				return
+			}
+			b.lastDashboard = time.Now()
+			return
+		}
+	}
 
 	if err := b.notifier.PostBudgetDashboard(ctx, drivers, ok, fail); err != nil {
 		b.log.Printf("slack dashboard: %v", err)

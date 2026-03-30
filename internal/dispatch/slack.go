@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
 )
 
@@ -64,6 +66,111 @@ func (n *Notifier) PostBudgetDashboard(ctx context.Context, drivers []routing.Dr
 	if total > 0 {
 		passRate := float64(workerOK) / float64(total) * 100
 		sb.WriteString(fmt.Sprintf("\nPass rate: *%.1f%%* | OK: %d | Failed: %d", passRate, workerOK, workerFail))
+	}
+
+	return n.post(ctx, map[string]interface{}{"text": sb.String()})
+}
+
+// PostSprintDigest sends a rich 4-hour status digest combining driver health,
+// pass rate, sprint progress, open PRs, and items blocked by unmet dependencies.
+// It supersedes PostBudgetDashboard when sprint data is available.
+func (n *Notifier) PostSprintDigest(ctx context.Context, drivers []routing.DriverHealth, workerOK, workerFail int64, items []sprint.SprintItem) error {
+	if !n.Enabled() {
+		return nil
+	}
+
+	now := time.Now().UTC().Format("15:04 UTC")
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("*📊 Sprint Digest — %s*\n", now))
+
+	// Pass rate
+	total := workerOK + workerFail
+	if total > 0 {
+		passRate := float64(workerOK) / float64(total) * 100
+		sb.WriteString(fmt.Sprintf("Pass rate: *%.1f%%* | OK: %d | Failed: %d\n", passRate, workerOK, workerFail))
+	}
+
+	// Driver health — one line
+	var driverParts []string
+	for _, d := range drivers {
+		icon := "🟢"
+		if d.CircuitState == "OPEN" {
+			icon = "🔴"
+		} else if d.CircuitState == "HALF" {
+			icon = "🟡"
+		}
+		part := fmt.Sprintf("%s `%s`", icon, d.Name)
+		if d.Failures > 0 {
+			part += fmt.Sprintf(" (%d failures)", d.Failures)
+		}
+		driverParts = append(driverParts, part)
+	}
+	if len(driverParts) > 0 {
+		sb.WriteString("Drivers: " + strings.Join(driverParts, " · ") + "\n")
+	}
+
+	if len(items) == 0 {
+		return n.post(ctx, map[string]interface{}{"text": sb.String()})
+	}
+
+	// Sprint progress breakdown
+	counts := map[string]int{}
+	for _, item := range items {
+		counts[item.Status]++
+	}
+	inProgress := counts["in_progress"] + counts["claimed"]
+	sb.WriteString(fmt.Sprintf(
+		"\n*Sprint:* ✅ Done: %d | 🔧 In Progress: %d | 🟡 PR Open: %d | 📋 Open: %d\n",
+		counts["done"], inProgress, counts["pr_open"], counts["open"],
+	))
+
+	// Open PRs — items in pr_open status, sorted by priority
+	var prItems []sprint.SprintItem
+	for _, item := range items {
+		if item.Status == "pr_open" && item.PRNumber > 0 {
+			prItems = append(prItems, item)
+		}
+	}
+	sort.Slice(prItems, func(i, j int) bool {
+		return prItems[i].Priority < prItems[j].Priority
+	})
+	if len(prItems) > 0 {
+		sb.WriteString("\n*Open PRs:*\n")
+		for _, item := range prItems {
+			prURL := fmt.Sprintf("https://github.com/%s/pull/%d", item.Repo, item.PRNumber)
+			sb.WriteString(fmt.Sprintf("  • <%s|#%d> `%s` — %s\n", prURL, item.PRNumber, item.Repo, item.Title))
+		}
+	}
+
+	// Blockers — open items whose dependencies are not yet done
+	doneSet := map[int]bool{}
+	for _, item := range items {
+		if item.Status == "done" {
+			doneSet[item.IssueNum] = true
+		}
+	}
+	var blocked []sprint.SprintItem
+	for _, item := range items {
+		if item.Status != "open" || len(item.DependsOn) == 0 {
+			continue
+		}
+		for _, dep := range item.DependsOn {
+			if !doneSet[dep] {
+				blocked = append(blocked, item)
+				break
+			}
+		}
+	}
+	if len(blocked) > 0 {
+		sb.WriteString("\n*Blockers:*\n")
+		for _, item := range blocked {
+			deps := make([]string, len(item.DependsOn))
+			for i, d := range item.DependsOn {
+				deps[i] = fmt.Sprintf("#%d", d)
+			}
+			sb.WriteString(fmt.Sprintf("  • [P%d] %s — waiting on %s\n",
+				item.Priority, item.Title, strings.Join(deps, ", ")))
+		}
 	}
 
 	return n.post(ctx, map[string]interface{}{"text": sb.String()})
