@@ -44,7 +44,32 @@ func ReadDriverHealth(healthDir, driver string) DriverHealth {
 	dh.Failures = hf.Failures
 	dh.LastFailure = hf.LastFailure
 	dh.LastSuccess = hf.LastSuccess
+	dh.OpenedAt = hf.OpenedAt
+	dh.LastSuccessAgo = humanAgo(hf.LastSuccess)
 	return dh
+}
+
+// humanAgo returns a human-readable duration since the given RFC3339 timestamp,
+// or an empty string if the timestamp is empty or unparseable.
+func humanAgo(ts string) string {
+	if ts == "" {
+		return ""
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
 }
 
 // DiscoverDrivers lists all driver names from .json files in the health directory.
