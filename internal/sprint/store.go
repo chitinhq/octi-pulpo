@@ -192,6 +192,10 @@ func (s *Store) Sync(ctx context.Context, repo string) error {
 	if err := s.SyncPRs(ctx, repo); err != nil {
 		s.log.Printf("sync PRs for %s: %v", repo, err)
 	}
+	// Sync closed issues so items that shipped don't stay status="open" in Redis.
+	if err := s.SyncClosed(ctx, repo); err != nil {
+		s.log.Printf("sync closed issues for %s: %v", repo, err)
+	}
 	return nil
 }
 
@@ -436,6 +440,67 @@ func (s *Store) getByRepo(ctx context.Context, repo string) ([]SprintItem, error
 	}
 
 	return items, nil
+}
+
+// SyncClosed fetches recently closed issues from a GitHub repo and marks
+// any matching sprint items as "done". This prevents the brain from
+// re-dispatching work that has already shipped.
+func (s *Store) SyncClosed(ctx context.Context, repo string) error {
+	cmd := exec.CommandContext(ctx, "gh", "issue", "list",
+		"-R", repo,
+		"--state", "closed",
+		"--json", "number",
+		"-L", "50",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("gh issue list --state closed -R %s: %w", repo, err)
+	}
+
+	var issues []struct {
+		Number int `json:"number"`
+	}
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return fmt.Errorf("parse closed issues for %s: %w", repo, err)
+	}
+
+	nums := make([]int, len(issues))
+	for i, issue := range issues {
+		nums[i] = issue.Number
+	}
+
+	marked := s.markClosedItems(ctx, repo, nums)
+	if marked > 0 {
+		s.log.Printf("marked %d closed issues as done in %s", marked, repo)
+	}
+	return nil
+}
+
+// markClosedItems marks sprint items for the given issue numbers as "done"
+// if they are currently open or pr_open. Returns the number of items marked.
+func (s *Store) markClosedItems(ctx context.Context, repo string, issueNums []int) int {
+	now := time.Now().UTC().Format(time.RFC3339)
+	var marked int
+	for _, num := range issueNums {
+		key := s.itemKey(repo, num)
+		raw, err := s.rdb.Get(ctx, key).Result()
+		if err != nil {
+			continue // not in sprint store
+		}
+		var item SprintItem
+		if err := json.Unmarshal([]byte(raw), &item); err != nil {
+			continue
+		}
+		if item.Status == "done" {
+			continue
+		}
+		item.Status = "done"
+		item.UpdatedAt = now
+		data, _ := json.Marshal(item)
+		s.rdb.Set(ctx, key, data, 0)
+		marked++
+	}
+	return marked
 }
 
 func (s *Store) itemKey(repo string, issueNum int) string {
