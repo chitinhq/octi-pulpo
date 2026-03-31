@@ -18,6 +18,8 @@ type AgentBudget struct {
 	BudgetMonthlyCents int    `json:"budget_monthly_cents"`
 	SpentMonthlyCents  int    `json:"spent_monthly_cents"`
 	RunsThisMonth      int    `json:"runs_this_month"`
+	TokensInTotal      int    `json:"tokens_in_total"`
+	TokensOutTotal     int    `json:"tokens_out_total"`
 	LastRunAt          string `json:"last_run_at,omitempty"`
 	Paused             bool   `json:"paused"`
 }
@@ -234,6 +236,25 @@ func (bs *BudgetStore) Unpause(ctx context.Context, agent string) error {
 		return err
 	}
 	budget.Paused = false
+	return bs.SetBudget(ctx, budget)
+}
+
+// RecordCost records actual API cost and token usage after a task completes.
+// This is called post-dispatch — separate from CheckAndIncrement which is
+// called pre-dispatch for budget gating. Increments spent_monthly_cents and
+// runs_this_month, and appends token counts to running totals.
+func (bs *BudgetStore) RecordCost(ctx context.Context, agent string, costCents, tokensIn, tokensOut int) error {
+	budget, err := bs.GetBudget(ctx, agent)
+	if err != nil {
+		return fmt.Errorf("record cost for %s: %w", agent, err)
+	}
+
+	budget.SpentMonthlyCents += costCents
+	budget.RunsThisMonth++
+	budget.TokensInTotal += tokensIn
+	budget.TokensOutTotal += tokensOut
+	budget.LastRunAt = time.Now().UTC().Format(time.RFC3339)
+
 	return bs.SetBudget(ctx, budget)
 }
 
