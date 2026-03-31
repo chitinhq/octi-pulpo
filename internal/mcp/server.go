@@ -64,9 +64,11 @@ type Server struct {
 	orgStore     *org.OrgStore
 	budgetStore   *budget.BudgetStore
 	goalStore     *sprint.GoalStore
-	admissionGate *admission.Gate
-	rdb           *redis.Client
-	redisNS       string
+	admissionGate    *admission.Gate
+	anthropicAdapter *dispatch.AnthropicAdapter
+	ghActionsAdapter *dispatch.GHActionsAdapter
+	rdb              *redis.Client
+	redisNS          string
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -122,6 +124,9 @@ func (s *Server) SetGoalStore(g *sprint.GoalStore) {
 func (s *Server) SetAdmissionGate(g *admission.Gate) {
 	s.admissionGate = g
 }
+
+func (s *Server) SetAnthropicAdapter(a *dispatch.AnthropicAdapter) { s.anthropicAdapter = a }
+func (s *Server) SetGHActionsAdapter(a *dispatch.GHActionsAdapter) { s.ghActionsAdapter = a }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
 func (s *Server) Serve() error {
@@ -860,6 +865,71 @@ func (s *Server) handleToolCall(req Request) Response {
 		data, _ := json.Marshal(locks)
 		return textResult(req.ID, string(data))
 
+	case "dispatch_anthropic":
+		var args struct {
+			Prompt   string `json:"prompt"`
+			Repo     string `json:"repo"`
+			Type     string `json:"type"`
+			Priority string `json:"priority"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Type == "" {
+			args.Type = "code-gen"
+		}
+		if args.Priority == "" {
+			args.Priority = "normal"
+		}
+		if s.anthropicAdapter == nil {
+			return errorResp(req.ID, -1, "anthropic adapter not configured")
+		}
+		task := &dispatch.Task{
+			ID:       fmt.Sprintf("api_%d", time.Now().UnixMilli()),
+			Type:     args.Type,
+			Repo:     args.Repo,
+			Prompt:   args.Prompt,
+			Priority: args.Priority,
+		}
+		adResult, adErr := s.anthropicAdapter.Dispatch(ctx, task)
+		if adErr != nil {
+			return errorResp(req.ID, -1, adErr.Error())
+		}
+		b, _ := json.Marshal(adResult)
+		return textResult(req.ID, string(b))
+
+	case "dispatch_ghactions":
+		var args struct {
+			Prompt   string `json:"prompt"`
+			Repo     string `json:"repo"`
+			Type     string `json:"type"`
+			Priority string `json:"priority"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		if args.Type == "" {
+			args.Type = "code-gen"
+		}
+		if args.Priority == "" {
+			args.Priority = "normal"
+		}
+		if args.Repo == "" {
+			return errorResp(req.ID, -1, "repo is required for gh-actions dispatch")
+		}
+		if s.ghActionsAdapter == nil {
+			return errorResp(req.ID, -1, "gh-actions adapter not configured")
+		}
+		task := &dispatch.Task{
+			ID:       fmt.Sprintf("gha_%d", time.Now().UnixMilli()),
+			Type:     args.Type,
+			Repo:     args.Repo,
+			Prompt:   args.Prompt,
+			Priority: args.Priority,
+		}
+		adResult, adErr := s.ghActionsAdapter.Dispatch(ctx, task)
+		if adErr != nil {
+			return errorResp(req.ID, -1, adErr.Error())
+		}
+		b, _ := json.Marshal(adResult)
+		return textResult(req.ID, string(b))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -1315,6 +1385,34 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "dispatch_anthropic",
+			Description: "Dispatch a task to the Anthropic API via ShellForge agent loop",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"prompt":   map[string]any{"type": "string", "description": "Task prompt"},
+					"repo":     map[string]any{"type": "string", "description": "Target repo (owner/name)"},
+					"type":     map[string]any{"type": "string", "description": "Task type: code-gen, bugfix, pr-review, qa, triage"},
+					"priority": map[string]any{"type": "string", "description": "Priority: critical, high, normal, background"},
+				},
+				"required": []string{"prompt"},
+			},
+		},
+		{
+			Name:        "dispatch_ghactions",
+			Description: "Dispatch a task to GitHub Actions Copilot Agent",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"prompt":   map[string]any{"type": "string", "description": "Task prompt"},
+					"repo":     map[string]any{"type": "string", "description": "Target repo (owner/name)"},
+					"type":     map[string]any{"type": "string", "description": "Task type"},
+					"priority": map[string]any{"type": "string", "description": "Priority level"},
+				},
+				"required": []string{"prompt", "repo"},
 			},
 		},
 	}

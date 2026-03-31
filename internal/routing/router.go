@@ -13,13 +13,14 @@ type CostTier string
 
 const (
 	TierLocal        CostTier = "local"
+	TierGHActions    CostTier = "gh-actions"
 	TierSubscription CostTier = "subscription"
 	TierCLI          CostTier = "cli"
 	TierAPI          CostTier = "api"
 )
 
 // tierOrder defines the cost cascade: cheapest first.
-var tierOrder = []CostTier{TierLocal, TierSubscription, TierCLI, TierAPI}
+var tierOrder = []CostTier{TierLocal, TierGHActions, TierSubscription, TierCLI, TierAPI}
 
 // driverTiers maps each known driver to its cost tier.
 var driverTiers = map[string]CostTier{
@@ -35,12 +36,16 @@ var driverTiers = map[string]CostTier{
 	"chatgpt-browser":    TierSubscription,
 	"notebooklm-browser": TierSubscription,
 	"gemini-app-browser": TierSubscription,
+	// GitHub Actions (free with Enterprise)
+	"gh-actions": TierGHActions,
 	// CLI (metered subscription)
 	"claude-code": TierCLI,
 	"copilot":     TierCLI,
 	"codex":       TierCLI,
 	"gemini":      TierCLI,
 	"goose":       TierCLI,
+	// Anthropic API (per-token)
+	"anthropic":  TierAPI,
 	// API (per-token, burst capacity)
 	"claude-api":  TierAPI,
 	"openai-api":  TierAPI,
@@ -54,7 +59,7 @@ var taskAffinityTiers = []struct {
 	keywords []string
 	minTier  CostTier
 }{
-	{[]string{"code", "review", "pull-request", "commit", "implement", "debug", "refactor", "test"}, TierCLI},
+	{[]string{"code", "review", "pull-request", "commit", "implement", "debug", "refactor", "test"}, TierGHActions},
 	// Browser-tier tasks: general web interaction plus NotebookLM-specific capabilities
 	// (audio overview, podcast briefing, slide deck generation, Drive export).
 	{[]string{"browse", "web", "click", "screenshot", "briefing", "artifact", "document",

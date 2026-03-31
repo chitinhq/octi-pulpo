@@ -112,6 +112,12 @@ func main() {
 	server.SetRedis(rdb, namespace)
 	server.SetAdmissionGate(admission.New(rdb, namespace))
 
+	// Initialize API-driven dispatch adapters
+	anthropicAdapter := dispatch.NewAnthropicAdapter("", "")
+	ghActionsAdapter := dispatch.NewGHActionsAdapter("")
+	server.SetAnthropicAdapter(anthropicAdapter)
+	server.SetGHActionsAdapter(ghActionsAdapter)
+
 	// Optional HTTP mode: run webhook server alongside MCP
 	httpPort := os.Getenv("OCTI_HTTP_PORT")
 	if httpPort != "" {
