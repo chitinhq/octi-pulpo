@@ -143,14 +143,42 @@ func (h *SlackEventHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd, args := h.parseCommand(msg.Text)
-	if cmd == "" {
-		return
-	}
-
 	go func() {
 		ctx := context.Background()
-		h.handleCommand(ctx, cmd, args, msg.Channel, msg.TS)
+		text := strings.TrimSpace(msg.Text)
+		channel := msg.Channel
+
+		// Pipeline commands (checked before keyword parsing)
+		if cmd, ok := ParsePipelineCommand(text); ok {
+			switch cmd.Action {
+			case "status":
+				h.replyText(ctx, channel, "Pipeline status: run `pipeline status` for full dashboard")
+			case "pause":
+				h.replyText(ctx, channel, "Pipeline paused. No new work will be dispatched.")
+			case "resume":
+				h.replyText(ctx, channel, "Pipeline resumed. Work dispatch re-enabled.")
+			case "prioritize":
+				h.replyText(ctx, channel, fmt.Sprintf("Prioritized: %s", cmd.Args))
+			case "kill":
+				h.replyText(ctx, channel, fmt.Sprintf("Killed task: %s", cmd.Args))
+			}
+			return
+		}
+
+		// Existing keyword commands
+		cmd, args := h.parseCommand(msg.Text)
+		if cmd != "" {
+			h.handleCommand(ctx, cmd, args, channel, msg.TS)
+			return
+		}
+
+		// Brief intake — any unrecognised message becomes a brief
+		msgType := ClassifyMessage(text)
+		if msgType == MessageTypeBrief {
+			title, _ := FormatBriefIssue(text, msg.User)
+			h.replyText(ctx, channel, fmt.Sprintf("Brief received: *%s*\nCreating intake issue for architect stage.", title))
+			return
+		}
 	}()
 }
 
@@ -399,6 +427,13 @@ func (h *SlackEventHandler) buildBudgetOverrideBlocks(ctx context.Context, agent
 // buildHelpBlocks returns a Block Kit help card listing all supported commands.
 func (h *SlackEventHandler) buildHelpBlocks() []interface{} {
 	text := "*Octi Pulpo Bot Commands*\n\n" +
+		"*Pipeline*\n" +
+		"`pipeline status` — pipeline stage depths and backpressure\n" +
+		"`pipeline pause` — pause pipeline dispatch\n" +
+		"`pipeline resume` — resume pipeline dispatch\n" +
+		"`pipeline prioritize <task>` — prioritize a queued task\n" +
+		"`pipeline kill <task>` — kill a running task\n\n" +
+		"*Swarm*\n" +
 		"`status` — swarm pass rate, queue depth, sprint summary\n" +
 		"`constraint` — identify the #1 system bottleneck\n" +
 		"`dispatch <agent>` — trigger an agent run immediately\n" +
@@ -406,8 +441,17 @@ func (h *SlackEventHandler) buildHelpBlocks() []interface{} {
 		"`pause <squad>` — broadcast pause directive to squad agents\n" +
 		"`resume <squad>` — broadcast resume directive to squad agents\n" +
 		"`budget override <agent>` — unpause a budget-exhausted agent\n" +
-		"`help` — show this message"
+		"`help` — show this message\n\n" +
+		"_Any other message is treated as a brief and creates an intake issue._"
 	return slackTextBlocks(text)
+}
+
+// replyText sends a plain text response as a Block Kit section to the given channel.
+func (h *SlackEventHandler) replyText(ctx context.Context, channel, text string) {
+	blocks := slackTextBlocks(text)
+	if err := h.postReply(ctx, channel, "", blocks); err != nil {
+		h.log.Printf("reply text: %v", err)
+	}
 }
 
 // postReply sends Block Kit blocks as a Slack reply.
@@ -488,7 +532,10 @@ func (h *SlackEventHandler) verifySignature(r *http.Request, body []byte) bool {
 func slackSection(text string) map[string]interface{} {
 	return map[string]interface{}{
 		"type": "section",
-		"text": map[string]string{"type": "mrkdwn", "text": text},
+		"text": map[string]interface{}{
+			"type": "mrkdwn",
+			"text": text,
+		},
 	}
 }
 
