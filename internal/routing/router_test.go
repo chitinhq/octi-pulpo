@@ -391,12 +391,12 @@ func TestTaskMinTier(t *testing.T) {
 		taskType string
 		want     CostTier
 	}{
-		{"code-review", TierCLI},
-		{"implement a feature", TierCLI},
-		{"debug the crash", TierCLI},
-		{"run tests", TierCLI},
-		{"commit message", TierCLI},
-		{"open a pull-request", TierCLI},
+		{"code-review", TierGHActions},
+		{"implement a feature", TierGHActions},
+		{"debug the crash", TierGHActions},
+		{"run tests", TierGHActions},
+		{"commit message", TierGHActions},
+		{"open a pull-request", TierGHActions},
 		{"generate briefing", TierSubscription},
 		{"web screenshot", TierSubscription},
 		{"browse the page", TierSubscription},
