@@ -119,6 +119,7 @@ func main() {
 		ws := dispatch.NewWebhookServer(dispatcher, secretFile)
 		ws.SetSprintStore(sprintStore)
 		ws.SetBenchmark(benchmark)
+		ws.SetBudgetStore(budgetStore)
 
 		// Wire Slack Events API command handler when credentials are set.
 		if slackSecret := os.Getenv("SLACK_SIGNING_SECRET"); slackSecret != "" {
@@ -126,6 +127,7 @@ func main() {
 			evHandler := dispatch.NewSlackEventHandler(slackSecret, slackBotToken, dispatcher)
 			evHandler.SetSprintStore(sprintStore)
 			evHandler.SetBenchmark(benchmark)
+			evHandler.SetBudgetStore(budgetStore)
 			if slackURL := os.Getenv("SLACK_WEBHOOK_URL"); slackURL != "" {
 				evHandler.SetNotifier(dispatch.NewNotifier(slackURL))
 			}
