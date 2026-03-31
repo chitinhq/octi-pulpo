@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AgentGuardHQ/octi-pulpo/internal/admission"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
@@ -61,10 +62,11 @@ type Server struct {
 	benchmark    *dispatch.BenchmarkTracker
 	profiles     *dispatch.ProfileStore
 	orgStore     *org.OrgStore
-	budgetStore  *budget.BudgetStore
-	goalStore    *sprint.GoalStore
-	rdb          *redis.Client
-	redisNS      string
+	budgetStore   *budget.BudgetStore
+	goalStore     *sprint.GoalStore
+	admissionGate *admission.Gate
+	rdb           *redis.Client
+	redisNS       string
 }
 
 // New creates an MCP server backed by the given memory and coordination engines.
@@ -114,6 +116,11 @@ func (s *Server) SetBudgetStore(b *budget.BudgetStore) {
 
 func (s *Server) SetGoalStore(g *sprint.GoalStore) {
 	s.goalStore = g
+}
+
+// SetAdmissionGate enables admission control MCP tools (admit_task, lock/unlock_domain, list_domain_locks).
+func (s *Server) SetAdmissionGate(g *admission.Gate) {
+	s.admissionGate = g
 }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
@@ -779,6 +786,80 @@ func (s *Server) handleToolCall(req Request) Response {
 		}
 		return textResult(req.ID, fmt.Sprintf("Budget reset for %s: spent=0, runs=0, paused=false", args.Agent))
 
+	// ── Admission control ──────────────────────────────────────────────────
+	case "admit_task":
+		if s.admissionGate == nil {
+			return errorResp(req.ID, -32000, "admission gate not initialized")
+		}
+		var args admission.TaskSpec
+		if err := json.Unmarshal(params.Arguments, &args); err != nil {
+			return errorResp(req.ID, -32602, "invalid arguments: "+err.Error())
+		}
+		score := s.admissionGate.Score(ctx, args)
+		data, _ := json.Marshal(score)
+		return textResult(req.ID, string(data))
+
+	case "lock_domain":
+		if s.admissionGate == nil {
+			return errorResp(req.ID, -32000, "admission gate not initialized")
+		}
+		var args struct {
+			Domain     string `json:"domain"`
+			Holder     string `json:"holder"`
+			TTLSeconds int    `json:"ttl_seconds"`
+		}
+		if err := json.Unmarshal(params.Arguments, &args); err != nil {
+			return errorResp(req.ID, -32602, "invalid arguments: "+err.Error())
+		}
+		ttl := time.Duration(args.TTLSeconds) * time.Second
+		if ttl <= 0 {
+			ttl = 900 * time.Second // default 15 min
+		}
+		lock, err := s.admissionGate.AcquireLock(ctx, args.Domain, args.Holder, ttl)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if lock == nil {
+			existing, _ := s.admissionGate.GetLock(ctx, args.Domain)
+			if existing != nil {
+				data, _ := json.Marshal(existing)
+				return textResult(req.ID, fmt.Sprintf("DENIED: domain locked by %s (since %s)\n%s", existing.Holder, existing.AcquiredAt, data))
+			}
+			return textResult(req.ID, "DENIED: domain already locked")
+		}
+		data, _ := json.Marshal(lock)
+		return textResult(req.ID, fmt.Sprintf("ACQUIRED: %s\n%s", args.Domain, data))
+
+	case "unlock_domain":
+		if s.admissionGate == nil {
+			return errorResp(req.ID, -32000, "admission gate not initialized")
+		}
+		var args struct {
+			Domain string `json:"domain"`
+			Holder string `json:"holder"`
+		}
+		if err := json.Unmarshal(params.Arguments, &args); err != nil {
+			return errorResp(req.ID, -32602, "invalid arguments: "+err.Error())
+		}
+		if err := s.admissionGate.ReleaseLock(ctx, args.Domain, args.Holder); err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		return textResult(req.ID, fmt.Sprintf("RELEASED: %s", args.Domain))
+
+	case "list_domain_locks":
+		if s.admissionGate == nil {
+			return errorResp(req.ID, -32000, "admission gate not initialized")
+		}
+		locks, err := s.admissionGate.ActiveLocks(ctx)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		if len(locks) == 0 {
+			return textResult(req.ID, "No active domain locks.")
+		}
+		data, _ := json.Marshal(locks)
+		return textResult(req.ID, string(data))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -1183,6 +1264,57 @@ func toolDefs() []ToolDef {
 					"agent": map[string]string{"type": "string", "description": "Agent name to reset (e.g. sr-kernel-01)"},
 				},
 				"required": []string{"agent"},
+			},
+		},
+		{
+			Name:        "admit_task",
+			Description: "Score a candidate task for admission to the swarm. Returns ACCEPT / DEFER / REJECT / ROUTE_TO_PREFLIGHT with a composite score, blast radius, and reasoning. Run before dispatching any task that touches multiple files or repos.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"title":            map[string]string{"type": "string", "description": "Short task title"},
+					"squad":            map[string]string{"type": "string", "description": "Owning squad (e.g. 'kernel')"},
+					"repo":             map[string]string{"type": "string", "description": "Target repo (e.g. 'AgentGuardHQ/agentguard')"},
+					"file_paths":       map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Files the task will touch (used for blast-radius scoring)"},
+					"priority":         map[string]interface{}{"type": "integer", "description": "0=CRITICAL, 1=HIGH, 2=NORMAL, 3=BACKGROUND"},
+					"is_reversible":    map[string]interface{}{"type": "boolean", "description": "Whether the changes can be easily undone"},
+					"spec_clarity":     map[string]interface{}{"type": "number", "description": "0.0-1.0: how complete/unambiguous the task spec is"},
+					"estimated_tokens": map[string]interface{}{"type": "integer", "description": "Approximate token cost for the run (optional)"},
+				},
+				"required": []string{"title", "squad", "repo"},
+			},
+		},
+		{
+			Name:        "lock_domain",
+			Description: "Acquire an exclusive domain lock before touching a contested surface (file path, branch, or service). Returns ACQUIRED or DENIED with the current holder. Lock auto-expires after ttl_seconds to handle agent crashes.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"domain":      map[string]string{"type": "string", "description": "Lock target: 'file:api/orders/', 'branch:feat/auth', or 'service:payments'"},
+					"holder":      map[string]string{"type": "string", "description": "Agent identity acquiring the lock (e.g. 'sr-octi-pulpo-01')"},
+					"ttl_seconds": map[string]interface{}{"type": "integer", "description": "Lock expiry in seconds (default 900). Set to task max duration to auto-release on crash."},
+				},
+				"required": []string{"domain", "holder"},
+			},
+		},
+		{
+			Name:        "unlock_domain",
+			Description: "Release a domain lock when your task is complete. Only the original holder can release their lock.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"domain": map[string]string{"type": "string", "description": "Domain surface to release (must match what was passed to lock_domain)"},
+					"holder": map[string]string{"type": "string", "description": "Agent identity that holds the lock"},
+				},
+				"required": []string{"domain", "holder"},
+			},
+		},
+		{
+			Name:        "list_domain_locks",
+			Description: "List all currently active domain locks across the swarm. Expired locks are pruned automatically. Use to check for conflicts before starting work.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
 			},
 		},
 	}

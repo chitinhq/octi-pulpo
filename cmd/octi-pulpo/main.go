@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AgentGuardHQ/octi-pulpo/internal/admission"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
@@ -109,6 +110,7 @@ func main() {
 	server.SetGoalStore(goalStore)
 	server.SetProfileStore(profiles)
 	server.SetRedis(rdb, namespace)
+	server.SetAdmissionGate(admission.New(rdb, namespace))
 
 	// Optional HTTP mode: run webhook server alongside MCP
 	httpPort := os.Getenv("OCTI_HTTP_PORT")
