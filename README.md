@@ -99,13 +99,13 @@ Octi Pulpo is **independent** — it works with any agent swarm, with or without
 
 ## Part of the Governed Swarm Platform
 
-| Layer | Role | Repo |
-|-------|------|------|
-| [ShellForge](https://github.com/AgentGuardHQ/shellforge) | Orchestration — forge and run agent swarms | `shellforge` |
-| **Octi Pulpo** | **Coordination — make agents work together** | `octi-pulpo` |
-| [AgentGuard](https://github.com/AgentGuardHQ/agentguard) | Governance — policy, telemetry, invariants | `agentguard` |
-
-ShellForge orchestrates. Octi Pulpo coordinates. AgentGuard governs.
+| Repo | Role |
+|------|------|
+| [AgentGuard](https://github.com/AgentGuardHQ/agentguard) | Governance — policy enforcement, telemetry, invariants |
+| **Octi Pulpo** | **Coordination — pipeline controller, model routing, Slack control plane** |
+| [ShellForge](https://github.com/AgentGuardHQ/shellforge) | Orchestration — multi-runtime agent execution |
+| [Preflight](https://github.com/AgentGuardHQ/preflight) | Protocol — universal design-before-you-build standard |
+| [Extensions](https://github.com/AgentGuardHQ/agentguard-extensions) | Drivers, integrations, policies, example swarms |
 
 ## Stack
 
