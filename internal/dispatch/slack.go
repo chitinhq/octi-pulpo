@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AgentGuardHQ/octi-pulpo/internal/pipeline"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
@@ -69,6 +70,47 @@ func (n *Notifier) PostBudgetDashboard(ctx context.Context, drivers []routing.Dr
 	}
 
 	return n.post(ctx, map[string]interface{}{"text": sb.String()})
+}
+
+// PostPipelineDashboard sends a pipeline status dashboard to Slack using Block Kit.
+func (n *Notifier) PostPipelineDashboard(
+	ctx context.Context,
+	depths map[pipeline.Stage]int,
+	sessions map[pipeline.Stage]int,
+	budgets []routing.DriverHealth,
+	bp pipeline.BackpressureAction,
+) error {
+	if !n.Enabled() {
+		return nil
+	}
+
+	blocks := FormatPipelineDashboard(depths, sessions, budgets, bp)
+
+	payload := map[string]interface{}{
+		"blocks": blocks,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal pipeline dashboard: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", n.webhookURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("slack webhook returned %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // PostSprintDigest sends a rich 4-hour status digest combining driver health,
