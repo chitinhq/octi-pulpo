@@ -488,7 +488,10 @@ func (h *SlackEventHandler) verifySignature(r *http.Request, body []byte) bool {
 func slackSection(text string) map[string]interface{} {
 	return map[string]interface{}{
 		"type": "section",
-		"text": map[string]string{"type": "mrkdwn", "text": text},
+		"text": map[string]interface{}{
+			"type": "mrkdwn",
+			"text": text,
+		},
 	}
 }
 
