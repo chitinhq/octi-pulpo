@@ -16,7 +16,9 @@ Swarm coordination layer for autonomous agent fleets.
 
 Running multiple AI agents? They step on each other. Duplicate work. Miss handoffs. Waste budget on the wrong model.
 
-**Octi Pulpo** is the coordination brain that sits between your agents and makes them work as a fleet. Every agent connects via MCP — no per-agent changes needed. One binary, sub-millisecond tool responses, zero runtime dependencies beyond Redis.
+**Octi Pulpo** is the coordination brain that turns agent chaos into a managed pipeline. It routes work through standardized stages (Architect → Implement → QA → Review → Release), picks the cheapest capable model for each stage, and scales agent sessions dynamically based on queue depth. One binary, sub-millisecond tool responses, zero runtime dependencies beyond Redis.
+
+> **Case study:** We migrated our own 128-agent swarm from an org chart to a pipeline — [read how](docs/case-study-pipeline-migration.md).
 
 ## The Eight Arms
 
@@ -125,9 +127,13 @@ ShellForge orchestrates. Octi Pulpo coordinates. AgentGuard governs.
 - [x] MCP server with stdio transport
 - [x] Redis-backed coordination (claims, signals)
 - [x] Shared memory store
-- [ ] Budget-aware dispatch (priority queue + adaptive backoff)
+- [x] Budget-aware dispatch (priority queue + adaptive backoff)
+- [x] Model-tier routing (Frontier/Mid/Light/Free)
+- [x] Pipeline controller (5-stage kanban with backpressure)
+- [x] Dynamic session scaling (queue depth → agent count)
+- [x] Slack control plane (dashboard, commands, brief intake, escalation)
+- [x] Admission control (intake scoring, concurrency gates, domain locks)
 - [ ] Vector search for memory recall (Qdrant integration)
-- [ ] Model routing with cost/capability scoring
 - [ ] Dependency resolution (Dagu workflow chains)
 - [ ] Health broadcasting with circuit breaker integration
 - [ ] Multi-box coordination protocol
