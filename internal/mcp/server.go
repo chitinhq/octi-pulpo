@@ -799,6 +799,15 @@ func (s *Server) handleToolCall(req Request) Response {
 		data, _ := json.Marshal(score)
 		return textResult(req.ID, string(data))
 
+	case "score_spec":
+		var args admission.ArchitectSpec
+		if err := json.Unmarshal(params.Arguments, &args); err != nil {
+			return errorResp(req.ID, -32602, "invalid arguments: "+err.Error())
+		}
+		result := admission.ScoreSpec(args)
+		data, _ := json.Marshal(result)
+		return textResult(req.ID, string(data))
+
 	case "lock_domain":
 		if s.admissionGate == nil {
 			return errorResp(req.ID, -32000, "admission gate not initialized")
@@ -1282,6 +1291,21 @@ func toolDefs() []ToolDef {
 					"estimated_tokens": map[string]interface{}{"type": "integer", "description": "Approximate token cost for the run (optional)"},
 				},
 				"required": []string{"title", "squad", "repo"},
+			},
+		},
+		{
+			Name:        "score_spec",
+			Description: "Score an architect-stage spec for completeness before advancing to stage:implement. Checks for acceptance criteria, files to touch, blast radius estimate, and a non-ambiguous approach. Returns Ready=true when all fields pass; Ready=false includes a Feedback message to send back to the architect agent.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"title":                map[string]string{"type": "string", "description": "Original issue/task title"},
+					"acceptance_criteria":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Conditions that must be true for the task to be complete (at least one required)"},
+					"files_touched":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Files the implementor should modify (at least one required)"},
+					"blast_radius_estimate": map[string]interface{}{"type": "integer", "description": "Architect's estimate of total files changed"},
+					"approach":             map[string]string{"type": "string", "description": "Specific implementation strategy (not a placeholder)"},
+				},
+				"required": []string{"title"},
 			},
 		},
 		{

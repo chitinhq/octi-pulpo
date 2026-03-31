@@ -25,7 +25,7 @@ func main() {
 		},
 		MaxSessions: map[pipeline.Stage]int{
 			pipeline.StageArchitect: 3, pipeline.StageImplement: 8,
-			pipeline.StageQA: 4, pipeline.StageReview: 3,
+			pipeline.StageQA: 8, pipeline.StageReview: 3,
 		},
 		ScaleUpThreshold: map[pipeline.Stage]int{
 			pipeline.StageArchitect: 3, pipeline.StageImplement: 5,

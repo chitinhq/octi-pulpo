@@ -35,6 +35,59 @@ type SprintItem struct {
 	GoalID       string   `json:"goal_id,omitempty"`
 	ParentGoalID string   `json:"parent_goal_id,omitempty"`
 	GoalAncestry []string `json:"goal_ancestry,omitempty"`
+	// FastPath marks items that can skip the architect stage and go directly
+	// to stage:implement at Mid/Light tier. Detected from GitHub labels and
+	// title patterns during Sync.
+	FastPath bool `json:"fast_path,omitempty"`
+}
+
+// fastPathLabels are GitHub label names that qualify an issue for the fast-path.
+// These tasks have well-understood patterns and don't need architect-stage planning.
+var fastPathLabels = map[string]bool{
+	"dependency":     true,
+	"dependencies":   true,
+	"test":           true,
+	"tests":          true,
+	"documentation":  true,
+	"doc":            true,
+	"docs":           true,
+	"lint":           true,
+	"formatting":     true,
+	"good-first-issue": true,
+	"chore":          true,
+}
+
+// fastPathTitleKeywords are substrings in an issue title that indicate a fast-path task.
+var fastPathTitleKeywords = []string{
+	"bump ", "upgrade ", "update dependency", "update dependencies",
+	"add test", "add tests", "test coverage", "increase coverage",
+	"fix typo", "fix comment", "update comment", "update docs",
+	"update readme", "add docs", "add documentation",
+	"lint fix", "fix lint", "run linter", "format ",
+}
+
+// IsFastPath reports whether a sprint item can skip the architect stage.
+// Items are fast-path when labeled as dependency/test/doc/lint/good-first-issue,
+// or when the title matches a known low-complexity pattern.
+func IsFastPath(item SprintItem) bool {
+	return item.FastPath
+}
+
+// classifyFastPath detects whether an issue should be treated as fast-path
+// based on its GitHub labels and title.
+func classifyFastPath(title string, labels []string) bool {
+	titleLower := strings.ToLower(title)
+	for _, kw := range fastPathTitleKeywords {
+		if strings.Contains(titleLower, kw) {
+			return true
+		}
+	}
+	for _, lbl := range labels {
+		if fastPathLabels[strings.ToLower(lbl)] {
+			return true
+		}
+	}
+	return false
 }
 
 // Store manages sprint items in Redis, synced from GitHub issues.
@@ -150,6 +203,12 @@ func (s *Store) Sync(ctx context.Context, repo string) error {
 		// Infer squad from repo
 		squad := inferSquadFromRepo(repo)
 
+		// Collect label names for fast-path detection
+		labelNames := make([]string, len(issue.Labels))
+		for i, lbl := range issue.Labels {
+			labelNames[i] = lbl.Name
+		}
+
 		// Check if item already exists (preserve status)
 		key := s.itemKey(repo, issue.Number)
 		existing, _ := s.rdb.Get(ctx, key).Result()
@@ -163,6 +222,7 @@ func (s *Store) Sync(ctx context.Context, repo string) error {
 			AssignTo:  assignTo,
 			Status:    "open",
 			UpdatedAt: now,
+			FastPath:  classifyFastPath(issue.Title, labelNames),
 		}
 
 		// Preserve status from existing item if it was already tracked
@@ -367,6 +427,50 @@ func (s *Store) NextDispatchable(ctx context.Context) ([]SprintItem, error) {
 	})
 
 	return dispatchable, nil
+}
+
+// NextFastPath returns open sprint items that can skip the architect stage
+// (dependency bumps, test additions, doc updates, lint fixes, good-first-issues).
+// Results are sorted by priority then issue number. These items go directly to
+// stage:implement at Mid/Light tier, freeing Frontier budget for complex work.
+func (s *Store) NextFastPath(ctx context.Context) ([]SprintItem, error) {
+	all, err := s.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	doneSet := make(map[int]bool)
+	for _, item := range all {
+		if item.Status == "done" {
+			doneSet[item.IssueNum] = true
+		}
+	}
+
+	var fastPath []SprintItem
+	for _, item := range all {
+		if item.Status != "open" || !item.FastPath {
+			continue
+		}
+		depsMet := true
+		for _, dep := range item.DependsOn {
+			if !doneSet[dep] {
+				depsMet = false
+				break
+			}
+		}
+		if depsMet {
+			fastPath = append(fastPath, item)
+		}
+	}
+
+	sort.Slice(fastPath, func(i, j int) bool {
+		if fastPath[i].Priority != fastPath[j].Priority {
+			return fastPath[i].Priority < fastPath[j].Priority
+		}
+		return fastPath[i].IssueNum < fastPath[j].IssueNum
+	})
+
+	return fastPath, nil
 }
 
 // UpdateStatus updates the status of a sprint item.
