@@ -83,28 +83,59 @@ func (l *Learner) RecordOutcome(ctx context.Context, task *TaskInfo, result *Out
 	return err
 }
 
-// RecallSimilar searches episodic memory for prior task outcomes similar
-// to the given task. Returns formatted context to inject into the prompt.
-// Returns empty string if no relevant memories found.
+// RecallSimilar searches both procedural and episodic memory for relevant
+// prior experience. Procedures (learned recipes) come first, followed by
+// similar episodic outcomes. Returns formatted context to inject into the
+// prompt. Returns empty string if no relevant memories found.
 func (l *Learner) RecallSimilar(ctx context.Context, task *TaskInfo) string {
 	query := fmt.Sprintf("%s %s %s", task.Type, task.Prompt, task.Repo)
 
-	entries, err := l.mem.Recall(ctx, query, 3)
+	entries, err := l.mem.Recall(ctx, query, 5)
 	if err != nil || len(entries) == 0 {
 		return ""
 	}
 
-	var parts []string
-	parts = append(parts, "## Prior Experience (from episodic memory)")
-	parts = append(parts, "The following similar tasks have been completed before. Use these as reference:")
-	parts = append(parts, "")
-
-	for i, entry := range entries {
-		parts = append(parts, fmt.Sprintf("### Prior task %d", i+1))
-		parts = append(parts, entry.Content)
-		parts = append(parts, "")
+	// Separate procedures from episodes.
+	var procedures, episodes []memory.Entry
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Content, "PROCEDURE:") {
+			procedures = append(procedures, entry)
+		} else {
+			episodes = append(episodes, entry)
+		}
 	}
 
+	var parts []string
+
+	// Procedures first — these are distilled, high-value recipes.
+	if len(procedures) > 0 {
+		parts = append(parts, "## Learned Procedures")
+		parts = append(parts, "These recipes have been extracted from prior successful task completions:")
+		parts = append(parts, "")
+		for _, p := range procedures {
+			parts = append(parts, p.Content)
+			parts = append(parts, "")
+		}
+	}
+
+	// Then episodic memories — raw prior outcomes.
+	if len(episodes) > 0 {
+		parts = append(parts, "## Prior Experience")
+		parts = append(parts, "Similar tasks completed before:")
+		parts = append(parts, "")
+		for i, entry := range episodes {
+			if i >= 3 { // cap at 3 episodes
+				break
+			}
+			parts = append(parts, fmt.Sprintf("### Prior task %d", i+1))
+			parts = append(parts, entry.Content)
+			parts = append(parts, "")
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
 	return strings.Join(parts, "\n")
 }
 
