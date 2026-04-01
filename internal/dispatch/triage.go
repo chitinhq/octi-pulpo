@@ -168,14 +168,25 @@ If unsure between tier:c and tier:b-scope, choose tier:b-scope. If unsure betwee
 		return nil, fmt.Errorf("empty API response")
 	}
 
-	// Parse the tier JSON from Claude's response
+	// Parse the tier JSON from Claude's response.
+	// Strip markdown code fences if present (Claude sometimes wraps JSON in ```json ... ```)
+	rawText := strings.TrimSpace(apiResp.Content[0].Text)
+	if strings.HasPrefix(rawText, "```") {
+		lines := strings.Split(rawText, "\n")
+		// Remove first line (```json) and last line (```)
+		if len(lines) >= 3 {
+			rawText = strings.Join(lines[1:len(lines)-1], "\n")
+		}
+		rawText = strings.TrimSpace(rawText)
+	}
+
 	var tierResp struct {
 		Tier       string  `json:"tier"`
 		Reason     string  `json:"reason"`
 		Confidence float64 `json:"confidence"`
 	}
-	if err := json.Unmarshal([]byte(apiResp.Content[0].Text), &tierResp); err != nil {
-		return nil, fmt.Errorf("parse tier response: %w (raw: %s)", err, apiResp.Content[0].Text)
+	if err := json.Unmarshal([]byte(rawText), &tierResp); err != nil {
+		return nil, fmt.Errorf("parse tier response: %w (raw: %s)", err, rawText)
 	}
 
 	// Validate tier
