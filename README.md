@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" alt="Octi Pulpo" width="360">
+  <img src="docs/assets/logo.png" alt="Octi Pulpo" width="360">
 </p>
 
 <p align="center">
