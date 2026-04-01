@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
 )
 
@@ -32,6 +33,7 @@ type WebhookServer struct {
 	benchmark          *BenchmarkTracker
 	slackEvents        *SlackEventHandler
 	budgetStore        *budget.BudgetStore
+	memoryStore        *memory.Store
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -61,7 +63,55 @@ func NewWebhookServer(dispatcher *Dispatcher, secretFile string) *WebhookServer 
 	ws.mux.HandleFunc("/sprint/sync", ws.handleSprintSync)
 	ws.mux.HandleFunc("/benchmark", ws.handleBenchmark)
 	ws.mux.HandleFunc("/slack/actions", ws.handleSlackActions)
+	ws.mux.HandleFunc("/api/memory", ws.handleMemoryStore)
 	return ws
+}
+
+// SetMemoryStore enables the /api/memory endpoint for CLI session telemetry.
+func (ws *WebhookServer) SetMemoryStore(m *memory.Store) {
+	ws.memoryStore = m
+}
+
+// handleMemoryStore receives memory entries from AgentGuard CLI hooks
+// via the Octi Bridge. This is how human CLI sessions feed the swarm's
+// episodic memory.
+func (ws *WebhookServer) handleMemoryStore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if ws.memoryStore == nil {
+		http.Error(w, "memory store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var payload struct {
+		Content string   `json:"content"`
+		Topics  []string `json:"topics"`
+		AgentID string   `json:"agent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if payload.Content == "" {
+		http.Error(w, "content required", http.StatusBadRequest)
+		return
+	}
+
+	agentID := payload.AgentID
+	if agentID == "" {
+		agentID = "cli-bridge"
+	}
+
+	id, err := ws.memoryStore.Put(r.Context(), agentID, payload.Content, payload.Topics)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": id, "status": "stored"})
 }
 
 // SetSprintStore enables sprint HTTP endpoints.

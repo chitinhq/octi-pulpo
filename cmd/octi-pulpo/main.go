@@ -10,6 +10,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/learner"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/mcp"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/org"
@@ -35,6 +36,28 @@ func main() {
 		os.Exit(1)
 	}
 	defer mem.Close()
+
+	// Optional: enable vector search via Qdrant + embeddings.
+	// Default embedder: Voyage AI (Anthropic's recommended embedding partner).
+	// Override with OCTI_EMBEDDINGS_URL for Ollama or other OpenAI-compatible endpoints.
+	if qdrantURL := os.Getenv("OCTI_QDRANT_URL"); qdrantURL != "" {
+		vc := memory.NewQdrantClient(qdrantURL)
+		embURL := os.Getenv("OCTI_EMBEDDINGS_URL")
+		embKey := os.Getenv("OCTI_EMBEDDINGS_KEY")     // Voyage AI API key (VOYAGE_API_KEY also checked)
+		embModel := os.Getenv("OCTI_EMBEDDINGS_MODEL")
+		if embURL == "" {
+			embURL = "https://api.voyageai.com"
+		}
+		if embKey == "" {
+			embKey = os.Getenv("VOYAGE_API_KEY")
+		}
+		if embModel == "" {
+			embModel = "voyage-3-lite"
+		}
+		emb := memory.NewHTTPEmbedder(embURL, embKey, embModel)
+		mem = mem.WithVector(vc, emb)
+		fmt.Fprintf(os.Stderr, "octi-pulpo: qdrant enabled (%s, embedder: %s/%s)\n", qdrantURL, embURL, embModel)
+	}
 
 	coord, err := coordination.New(redisURL, namespace)
 	if err != nil {
@@ -115,6 +138,11 @@ func main() {
 	// Initialize API-driven dispatch adapters
 	anthropicAdapter := dispatch.NewAnthropicAdapter("", "")
 	ghActionsAdapter := dispatch.NewGHActionsAdapter("")
+
+	// Wire learner for auto-store of task outcomes in episodic memory.
+	taskLearner := learner.New(mem)
+	anthropicAdapter.SetLearner(taskLearner)
+
 	server.SetAnthropicAdapter(anthropicAdapter)
 	server.SetGHActionsAdapter(ghActionsAdapter)
 
@@ -126,6 +154,7 @@ func main() {
 		ws.SetSprintStore(sprintStore)
 		ws.SetBenchmark(benchmark)
 		ws.SetBudgetStore(budgetStore)
+		ws.SetMemoryStore(mem)
 
 		// Wire Slack Events API command handler when credentials are set.
 		if slackSecret := os.Getenv("SLACK_SIGNING_SECRET"); slackSecret != "" {
