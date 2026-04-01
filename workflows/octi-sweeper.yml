@@ -1,0 +1,100 @@
+name: "Octi — Sweeper"
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: octi-sweeper
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Detect Stuck Work
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sweep stuck items
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+        run: |
+          echo "=== Octi Sweeper — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+          ESCALATED=0
+
+          # 1. Issues stuck in tier:c for >24h (Copilot hasn't opened a PR)
+          STUCK_ISSUES=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "tier:c" --state open --json number,createdAt --jq \
+            '.[] | select(
+              (now - (.createdAt | fromdateiso8601)) > 86400
+            ) | .number' 2>/dev/null || echo "")
+
+          for ISSUE in $STUCK_ISSUES; do
+            echo "Escalating stuck issue #${ISSUE} (tier:c >24h)"
+            gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" \
+              --remove-label "tier:c" --add-label "tier:b-code" 2>/dev/null || \
+            gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --add-label "tier:b-code"
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "⏰ **Sweeper — Escalating to Tier B**
+
+          Issue has been in tier:c for >24h with no PR opened. Escalating to Tier B.
+
+          _Powered by Octi Pulpo sweeper_"
+            ESCALATED=$((ESCALATED + 1))
+          done
+
+          # 2. PRs stuck in tier:review for >6h (no review posted)
+          STUCK_PRS=$(gh pr list --repo "$GITHUB_REPOSITORY" --label "tier:review" --state open --json number,updatedAt --jq \
+            '.[] | select(
+              (now - (.updatedAt | fromdateiso8601)) > 21600
+            ) | .number' 2>/dev/null || echo "")
+
+          for PR in $STUCK_PRS; do
+            echo "Nudging stuck PR #${PR} (tier:review >6h)"
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "⏰ **Sweeper — Review stalled**
+
+          PR has been awaiting review for >6h. Requesting re-review.
+
+          _Powered by Octi Pulpo sweeper_"
+            # Re-request Copilot review
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-reviewer "copilot-swe-agent" 2>/dev/null || true
+          done
+
+          # 3. PRs stuck in tier:ci-running for >2h (CI stalled)
+          STUCK_CI=$(gh pr list --repo "$GITHUB_REPOSITORY" --label "tier:ci-running" --state open --json number,updatedAt --jq \
+            '.[] | select(
+              (now - (.updatedAt | fromdateiso8601)) > 7200
+            ) | .number' 2>/dev/null || echo "")
+
+          for PR in $STUCK_CI; do
+            echo "Flagging stuck CI PR #${PR}"
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label "needs:human"
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "⏰ **Sweeper — CI stalled >2h**
+
+          CI has not completed in over 2 hours. Flagged for human attention.
+
+          _Powered by Octi Pulpo sweeper_"
+            ESCALATED=$((ESCALATED + 1))
+          done
+
+          echo ""
+          echo "=== Sweeper Summary ==="
+          echo "Escalated: ${ESCALATED}"
+          echo "Stuck tier:c issues nudged: $(echo "$STUCK_ISSUES" | grep -c . || echo 0)"
+          echo "Stuck tier:review PRs nudged: $(echo "$STUCK_PRS" | grep -c . || echo 0)"
+          echo "Stuck CI PRs flagged: $(echo "$STUCK_CI" | grep -c . || echo 0)"
+
+          {
+            echo "## Octi Sweeper Summary"
+            echo ""
+            echo "| Category | Count |"
+            echo "|----------|-------|"
+            echo "| Escalated to higher tier | ${ESCALATED} |"
+            echo ""
+            echo "_Run: $(date -u +%Y-%m-%dT%H:%M:%SZ)_"
+          } >> $GITHUB_STEP_SUMMARY
