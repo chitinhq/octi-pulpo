@@ -1,0 +1,7 @@
+{
+  "tier_b_mode": "claude-api",
+  "anthropic_model_triage": "claude-haiku-4-5-20251001",
+  "sweeper_interval_hours": 4,
+  "auto_merge": true,
+  "ag_gateway_telemetry": false
+}
