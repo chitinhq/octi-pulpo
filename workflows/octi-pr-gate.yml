@@ -42,6 +42,14 @@ jobs:
           fi
           echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
 
+          # Skip draft PRs — wait for ready_for_review event (Copilot signals "done")
+          IS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null || echo "false")
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "is_agent=false" >> $GITHUB_OUTPUT
+            echo "::notice::Skipping draft PR — will process when marked ready for review"
+            exit 0
+          fi
+
           # Check author
           PR_AUTHOR=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json author --jq '.author.login' 2>/dev/null || echo "")
           IS_AGENT="false"
@@ -169,8 +177,11 @@ jobs:
             --add-label "tier:review" 2>/dev/null || \
           gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "tier:review"
 
-          # Request Copilot code review
-          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-reviewer "copilot-swe-agent" 2>/dev/null || true
+          # Request Copilot code review (@copilot is the review agent, not coding agent)
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-reviewer "@copilot" 2>/dev/null || true
+
+          # Auto-merge after CI passes — Copilot review is advisory only (leaves Comment, not Approve)
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --auto 2>/dev/null || true
 
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "⚡ **Octi PR Gate — PASSED**
 

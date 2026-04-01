@@ -62,7 +62,7 @@ jobs:
 
           _Powered by Octi Pulpo sweeper_"
             # Re-request Copilot review
-            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-reviewer "copilot-swe-agent" 2>/dev/null || true
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-reviewer "@copilot" 2>/dev/null || true
           done
 
           # 3. PRs stuck in tier:ci-running for >2h (CI stalled)
