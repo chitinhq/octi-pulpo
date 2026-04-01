@@ -119,8 +119,14 @@ Octi Pulpo is **independent** — it works with any agent swarm, with or without
 | Env Variable | Default | Description |
 |-------------|---------|-------------|
 | `OCTI_REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
+| `OCTI_QDRANT_URL` | (disabled) | Qdrant URL for vector memory (e.g. `http://localhost:6333`) |
+| `OCTI_HTTP_PORT` | `8080` | HTTP server port for `/api/dispatch` and `/api/memory` |
 | `OCTI_NAMESPACE` | `octi` | Key prefix for multi-tenant isolation |
+| `ANTHROPIC_API_KEY` | — | Required for Anthropic API dispatch |
+| `VOYAGE_API_KEY` | — | Required for Voyage AI embeddings (used with Qdrant) |
+| `VOYAGE_EMBED_MODEL` | `voyage-3-lite` | Embedding model (`voyage-3-lite` = $0.02/MTok) |
 | `AGENTGUARD_AGENT_NAME` | (auto-detected) | Calling agent identity |
+| `OCTI_HTTP_URL` | — | Set on agent hosts to enable OctiBridge (CLI hook → memory) |
 
 ## Roadmap
 
@@ -133,7 +139,13 @@ Octi Pulpo is **independent** — it works with any agent swarm, with or without
 - [x] Dynamic session scaling (queue depth → agent count)
 - [x] Slack control plane (dashboard, commands, brief intake, escalation)
 - [x] Admission control (intake scoring, concurrency gates, domain locks)
-- [ ] Vector search for memory recall (Qdrant integration)
+- [x] Vector search for memory recall (Qdrant + Voyage AI embeddings)
+- [x] HTTP dispatch endpoint (`/api/dispatch`, `/api/memory`)
+- [x] Model cascading (Haiku→Sonnet→Opus by task complexity)
+- [x] Request dedup + result caching (Redis, type-aware TTLs)
+- [x] Batches API queue (50% discount, async flush)
+- [x] Episodic + procedural memory (learned recipes from episode clusters)
+- [x] OctiBridge: AgentGuard CLI hooks → Octi Pulpo memory
 - [ ] Dependency resolution (Dagu workflow chains)
 - [ ] Health broadcasting with circuit breaker integration
 - [ ] Multi-box coordination protocol
