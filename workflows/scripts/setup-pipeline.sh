@@ -2,28 +2,53 @@
 set -euo pipefail
 
 # Install Octi Pulpo pipeline into a target repo.
-# Usage: setup-pipeline.sh <owner/repo> [--dry-run]
+# Usage: setup-pipeline.sh <owner/repo> [--prefix <prefix>] [--dry-run]
+#
+# Options:
+#   --prefix <name>  Rename workflow files from 'octi-' to '<name>-' and
+#                    rebrand internal references. Default: octi
+#   --dry-run        Show what would be done without making changes
+#
+# Examples:
+#   setup-pipeline.sh AgentGuardHQ/agentguard-cloud
+#   setup-pipeline.sh myorg/frontend --prefix amd
+#   setup-pipeline.sh myorg/frontend --prefix amd --dry-run
 #
 # Prerequisites:
 #   - gh CLI authenticated with repo scope
 #   - Target repo must exist
-#
-# What it does:
-#   1. Creates required labels
-#   2. Copies workflow files to .github/workflows/
-#   3. Copies scripts to .github/scripts/
-#   4. Copies default octi-config.json to .github/
-#   5. Validates secrets exist
 
-REPO="${1:?Usage: setup-pipeline.sh <owner/repo> [--dry-run]}"
-DRY_RUN="${2:-}"
+# Parse arguments
+REPO=""
+PREFIX="octi"
+DRY_RUN=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prefix) PREFIX="$2"; shift 2 ;;
+    --dry-run) DRY_RUN="--dry-run"; shift ;;
+    -*) echo "Unknown option: $1"; exit 1 ;;
+    *) REPO="$1"; shift ;;
+  esac
+done
+
+if [ -z "$REPO" ]; then
+  echo "Usage: setup-pipeline.sh <owner/repo> [--prefix <prefix>] [--dry-run]"
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKFLOWS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "=== Octi Pipeline Setup ==="
+# Brand name derived from prefix (for comments and PR text)
+BRAND="${PREFIX^} Pipeline"  # capitalize first letter
+[ "$PREFIX" = "octi" ] && BRAND="Octi Pulpo pipeline"
+
+echo "=== ${BRAND} Setup ==="
 echo "Target: ${REPO}"
+echo "Prefix: ${PREFIX}-"
 echo "Source: ${WORKFLOWS_DIR}"
-[ "$DRY_RUN" = "--dry-run" ] && echo "MODE: DRY RUN"
+[ -n "$DRY_RUN" ] && echo "MODE: DRY RUN"
 echo ""
 
 # 1. Create labels
@@ -44,7 +69,7 @@ LABELS=(
 echo "--- Creating labels ---"
 for entry in "${LABELS[@]}"; do
   IFS='|' read -r NAME COLOR DESC <<< "$entry"
-  if [ "$DRY_RUN" = "--dry-run" ]; then
+  if [ -n "$DRY_RUN" ]; then
     echo "  [DRY] Would create label: ${NAME}"
   else
     gh label create "$NAME" --repo "$REPO" --color "$COLOR" --description "$DESC" 2>/dev/null && \
@@ -54,8 +79,9 @@ for entry in "${LABELS[@]}"; do
 done
 
 # 2. Clone target repo (temp)
-if [ "$DRY_RUN" != "--dry-run" ]; then
+if [ -z "$DRY_RUN" ]; then
   TMPDIR=$(mktemp -d)
+  trap 'rm -rf "$TMPDIR"' EXIT
   echo ""
   echo "--- Cloning ${REPO} ---"
   gh repo clone "$REPO" "$TMPDIR" -- --depth 1
@@ -63,51 +89,66 @@ if [ "$DRY_RUN" != "--dry-run" ]; then
 
   # Detect default branch
   DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
-  BRANCH="feat/octi-pipeline-setup"
+  BRANCH="feat/${PREFIX}-pipeline-setup"
 
   git checkout -b "$BRANCH"
 
-  # 3. Copy workflows
+  # 3. Copy workflows — rename octi- prefix to chosen prefix
   mkdir -p .github/workflows .github/scripts
   for yml in "$WORKFLOWS_DIR"/octi-*.yml; do
-    cp "$yml" .github/workflows/
-    echo "  [COPY] $(basename "$yml") -> .github/workflows/"
+    BASENAME=$(basename "$yml")
+    TARGET_NAME="${BASENAME/octi-/${PREFIX}-}"
+    # Replace internal branding references
+    sed \
+      -e "s/Octi — /$(echo "${PREFIX^}") — /g" \
+      -e "s/Octi Pulpo pipeline/${BRAND}/g" \
+      -e "s/Octi Pulpo sweeper/${BRAND} sweeper/g" \
+      -e "s/Octi PR Gate/$(echo "${PREFIX^}") PR Gate/g" \
+      -e "s/Octi Review/$(echo "${PREFIX^}") Review/g" \
+      -e "s/octi-sweeper/${PREFIX}-sweeper/g" \
+      -e "s/octi-triage/${PREFIX}-triage/g" \
+      -e "s/octi-pr-gate/${PREFIX}-pr-gate/g" \
+      -e "s/octi-review/${PREFIX}-review/g" \
+      "$yml" > ".github/workflows/${TARGET_NAME}"
+    echo "  [COPY] ${BASENAME} -> .github/workflows/${TARGET_NAME}"
   done
 
-  # 4. Copy scripts
+  # 4. Copy scripts (no rename needed — scripts are generic)
   for sh in "$WORKFLOWS_DIR"/scripts/claude-*.sh; do
-    [ -f "$sh" ] && cp "$sh" .github/scripts/ && echo "  [COPY] $(basename "$sh") -> .github/scripts/"
+    [ -f "$sh" ] && cp "$sh" .github/scripts/ && chmod +x ".github/scripts/$(basename "$sh")" \
+      && echo "  [COPY] $(basename "$sh") -> .github/scripts/"
   done
 
-  # 5. Copy config (don't overwrite if exists)
-  if [ ! -f ".github/octi-config.json" ]; then
-    cp "$WORKFLOWS_DIR/octi-config.json" .github/octi-config.json
-    echo "  [COPY] octi-config.json -> .github/"
+  # 5. Copy config — update prefix field
+  CONFIG_FILE=".github/${PREFIX}-config.json"
+  if [ ! -f "$CONFIG_FILE" ]; then
+    jq --arg prefix "$PREFIX" '. + {prefix: $prefix}' "$WORKFLOWS_DIR/octi-config.json" > "$CONFIG_FILE"
+    echo "  [COPY] octi-config.json -> .github/${PREFIX}-config.json"
   else
-    echo "  [SKIP] .github/octi-config.json already exists"
+    echo "  [SKIP] ${CONFIG_FILE} already exists"
   fi
 
   # 6. Commit and push
   git add .github/
-  git commit -m "feat: install Octi Pulpo pipeline workflows
+  git commit -m "feat: install ${BRAND} workflows
 
 Adds triage, Copilot dispatch, PR gate, review handler, and sweeper
-workflows from the Octi Pulpo pipeline framework."
+workflows (prefix: ${PREFIX}-)."
 
   git push -u origin "$BRANCH"
 
   # 7. Open PR
   PR_URL=$(gh pr create \
     --repo "$REPO" \
-    --title "feat: install Octi Pulpo pipeline" \
+    --title "feat: install ${BRAND}" \
     --body "## Summary
-- Installs 5 pipeline workflows (triage, dispatch, gate, review, sweeper)
+- Installs 5 pipeline workflows (prefix: \`${PREFIX}-\`)
 - Adds Claude triage script
 - Creates pipeline labels
-- Adds default octi-config.json
+- Adds default ${PREFIX}-config.json
 
 ## Required Secrets
-- \`ANTHROPIC_API_KEY\` — for Claude API triage
+- \`ANTHROPIC_API_KEY\` — for Claude API triage (skip if tier_b_mode is human-team)
 - \`OCTI_PAT\` — GitHub PAT with repo scope (or GitHub App token)
 
 ## Next Steps
@@ -115,21 +156,25 @@ workflows from the Octi Pulpo pipeline framework."
 2. Merge this PR
 3. Create a test issue to validate the pipeline
 
-_Installed by Octi Pulpo setup script_")
+_Installed by ${BRAND} setup script_")
 
   echo ""
   echo "=== Setup Complete ==="
   echo "PR: ${PR_URL}"
   echo ""
   echo "Required secrets (add to repo settings):"
-  echo "  - ANTHROPIC_API_KEY"
+  echo "  - ANTHROPIC_API_KEY (skip if tier_b_mode=human-team)"
   echo "  - OCTI_PAT"
-
-  # Cleanup
-  rm -rf "$TMPDIR"
 else
   echo ""
   echo "=== Dry Run Complete ==="
-  echo "Would copy: $(ls "$WORKFLOWS_DIR"/octi-*.yml | wc -l) workflow files"
+  echo "Prefix: ${PREFIX}-"
+  echo "Would copy and rename: $(ls "$WORKFLOWS_DIR"/octi-*.yml | wc -l) workflow files"
   echo "Would copy: $(ls "$WORKFLOWS_DIR"/scripts/claude-*.sh 2>/dev/null | wc -l) script files"
+  echo ""
+  echo "File renames:"
+  for yml in "$WORKFLOWS_DIR"/octi-*.yml; do
+    BASENAME=$(basename "$yml")
+    echo "  ${BASENAME} -> ${BASENAME/octi-/${PREFIX}-}"
+  done
 fi
