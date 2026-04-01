@@ -156,6 +156,10 @@ func main() {
 		ws.SetBudgetStore(budgetStore)
 		ws.SetMemoryStore(mem)
 
+		// Wire triage handler — Claude API calls stay on this box
+		triageHandler := dispatch.NewTriageHandler("", "", "")
+		ws.SetTriageHandler(triageHandler)
+
 		// Wire Slack Events API command handler when credentials are set.
 		if slackSecret := os.Getenv("SLACK_SIGNING_SECRET"); slackSecret != "" {
 			slackBotToken := os.Getenv("SLACK_BOT_TOKEN")

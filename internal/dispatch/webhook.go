@@ -34,6 +34,12 @@ type WebhookServer struct {
 	slackEvents        *SlackEventHandler
 	budgetStore        *budget.BudgetStore
 	memoryStore        *memory.Store
+	triageHandler      *TriageHandler
+}
+
+// SetTriageHandler enables automatic issue triage via Claude API.
+func (ws *WebhookServer) SetTriageHandler(th *TriageHandler) {
+	ws.triageHandler = th
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -200,8 +206,39 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dispatch through the coordinator
 	ctx := context.Background()
+
+	// Issue triage: classify via Claude API on this box, then label
+	if event.Type == EventIssueOpened && ws.triageHandler != nil {
+		issueNumber := int(getNestedNumber(payload, "issue", "number"))
+		title := getNestedString(payload, "issue", "title")
+		issueBody := getNestedString(payload, "issue", "body")
+		var issueLabels []string
+		if labelsRaw, ok := payload["issue"].(map[string]interface{}); ok {
+			if arr, ok := labelsRaw["labels"].([]interface{}); ok {
+				for _, l := range arr {
+					if lm, ok := l.(map[string]interface{}); ok {
+						if name, ok := lm["name"].(string); ok {
+							issueLabels = append(issueLabels, name)
+						}
+					}
+				}
+			}
+		}
+
+		triageResult, triageErr := ws.triageHandler.HandleIssue(ctx, repo, issueNumber, title, issueBody, issueLabels)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":      true,
+			"action":  "triaged",
+			"triage":  triageResult,
+			"error":   fmt.Sprintf("%v", triageErr),
+		})
+		return
+	}
+
+	// Dispatch through the coordinator
 	results, err := ws.dispatcher.DispatchEvent(ctx, *event)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -606,6 +643,23 @@ func (ws *WebhookServer) verifySlackSignature(body []byte, timestamp, signature 
 
 func (ws *WebhookServer) parseGitHubEvent(eventType, action, repo string, payload map[string]interface{}) *Event {
 	switch eventType {
+	case "issues":
+		if action == "opened" {
+			issueNumber := getNestedNumber(payload, "issue", "number")
+			return &Event{
+				Type:     EventIssueOpened,
+				Source:   "github",
+				Repo:     repo,
+				Priority: 2,
+				Payload: map[string]string{
+					"action":       action,
+					"issue_number": fmt.Sprintf("%.0f", issueNumber),
+					"title":        getNestedString(payload, "issue", "title"),
+					"body":         getNestedString(payload, "issue", "body"),
+				},
+			}
+		}
+
 	case "pull_request":
 		switch action {
 		case "opened", "ready_for_review":

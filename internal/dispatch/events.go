@@ -9,6 +9,7 @@ import (
 type EventType string
 
 const (
+	EventIssueOpened  EventType = "issue.opened"
 	EventPROpened     EventType = "pr.opened"
 	EventPRUpdated    EventType = "pr.updated"
 	EventCICompleted  EventType = "ci.completed"
