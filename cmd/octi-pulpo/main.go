@@ -10,6 +10,7 @@ import (
 	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
+	"github.com/AgentGuardHQ/octi-pulpo/internal/learner"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/mcp"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
 	"github.com/AgentGuardHQ/octi-pulpo/internal/org"
@@ -137,6 +138,11 @@ func main() {
 	// Initialize API-driven dispatch adapters
 	anthropicAdapter := dispatch.NewAnthropicAdapter("", "")
 	ghActionsAdapter := dispatch.NewGHActionsAdapter("")
+
+	// Wire learner for auto-store of task outcomes in episodic memory.
+	taskLearner := learner.New(mem)
+	anthropicAdapter.SetLearner(taskLearner)
+
 	server.SetAnthropicAdapter(anthropicAdapter)
 	server.SetGHActionsAdapter(ghActionsAdapter)
 
