@@ -154,6 +154,7 @@ func main() {
 		ws.SetSprintStore(sprintStore)
 		ws.SetBenchmark(benchmark)
 		ws.SetBudgetStore(budgetStore)
+		ws.SetMemoryStore(mem)
 
 		// Wire Slack Events API command handler when credentials are set.
 		if slackSecret := os.Getenv("SLACK_SIGNING_SECRET"); slackSecret != "" {
