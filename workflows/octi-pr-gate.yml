@@ -1,0 +1,183 @@
+name: "Octi — PR Gate"
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+  check_suite:
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: octi-pr-gate-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: Detect Agent PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      is_agent: ${{ steps.detect.outputs.is_agent }}
+      pr_number: ${{ steps.detect.outputs.pr_number }}
+    steps:
+      - name: Detect
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || inputs.pr_number }}"
+          if [ -z "$PR_NUMBER" ]; then
+            echo "is_agent=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+
+          # Check author
+          PR_AUTHOR=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json author --jq '.author.login' 2>/dev/null || echo "")
+          IS_AGENT="false"
+          case "$PR_AUTHOR" in
+            app/copilot-swe-agent|Copilot|copilot-swe-agent\[bot\]|github-copilot\[bot\])
+              IS_AGENT="true" ;;
+          esac
+
+          # Also check labels
+          if [ "$IS_AGENT" = "false" ]; then
+            LABELS=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+            if echo "$LABELS" | grep -q "agent:review"; then
+              IS_AGENT="true"
+            fi
+          fi
+
+          echo "is_agent=${IS_AGENT}" >> $GITHUB_OUTPUT
+
+  gate:
+    name: Policy + CI Gate
+    needs: detect
+    if: needs.detect.outputs.is_agent == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Policy checks
+        id: policy
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr_number }}
+        run: |
+          STATUS="pass"
+          FINDINGS=""
+
+          PR_JSON=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json additions,deletions,changedFiles,isDraft)
+          ADDITIONS=$(echo "$PR_JSON" | jq -r '.additions // 0')
+          DELETIONS=$(echo "$PR_JSON" | jq -r '.deletions // 0')
+          CHANGED_FILES=$(echo "$PR_JSON" | jq -r '.changedFiles // 0')
+          TOTAL_LINES=$((ADDITIONS + DELETIONS))
+
+          # Size check
+          if [ "$TOTAL_LINES" -gt 1500 ]; then
+            FINDINGS="${FINDINGS}\n- ❌ Too large: ${TOTAL_LINES} lines (limit: 1500)"
+            STATUS="fail"
+          elif [ "$TOTAL_LINES" -gt 500 ]; then
+            FINDINGS="${FINDINGS}\n- ⚠️ Large PR: ${TOTAL_LINES} lines"
+          fi
+
+          # File count check
+          if [ "$CHANGED_FILES" -gt 20 ]; then
+            FINDINGS="${FINDINGS}\n- ❌ Too many files: ${CHANGED_FILES} (limit: 20)"
+            STATUS="fail"
+          fi
+
+          # Protected paths
+          DIFF_FILES=$(gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --name-only 2>/dev/null || echo "")
+          for pattern in ".env" ".npmrc" "id_rsa" "id_ed25519" "agentguard.yaml"; do
+            if echo "$DIFF_FILES" | grep -q "$pattern"; then
+              FINDINGS="${FINDINGS}\n- ❌ Protected file modified: ${pattern}"
+              STATUS="fail"
+            fi
+          done
+
+          if [ -z "$FINDINGS" ]; then
+            FINDINGS="✅ All policy checks passed"
+          fi
+
+          echo "status=${STATUS}" >> $GITHUB_OUTPUT
+          {
+            echo "findings<<EOF"
+            echo -e "$FINDINGS"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+          echo "stats=${TOTAL_LINES} lines, ${CHANGED_FILES} files" >> $GITHUB_OUTPUT
+
+      - name: Check CI status
+        id: ci
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr_number }}
+        run: |
+          PR_SHA=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')
+          CI_CONCLUSION=$(gh api "repos/$GITHUB_REPOSITORY/commits/${PR_SHA}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "Build & Test")] | .[0].conclusion // "pending"' 2>/dev/null || echo "pending")
+
+          echo "ci=${CI_CONCLUSION}" >> $GITHUB_OUTPUT
+
+      - name: Route PR
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+          PR_NUMBER: ${{ needs.detect.outputs.pr_number }}
+          POLICY: ${{ steps.policy.outputs.status }}
+          CI: ${{ steps.ci.outputs.ci }}
+          FINDINGS: ${{ steps.policy.outputs.findings }}
+          STATS: ${{ steps.policy.outputs.stats }}
+        run: |
+          # Policy failed — reject
+          if [ "$POLICY" = "fail" ]; then
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "tier:needs-revision"
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "⚡ **Octi PR Gate — REJECTED**
+
+          ${FINDINGS}
+
+          **Stats:** ${STATS}
+          Close this PR, fix the issues, and resubmit.
+
+          _Powered by Octi Pulpo pipeline_"
+            exit 0
+          fi
+
+          # CI not done — wait
+          if [ "$CI" != "success" ]; then
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "tier:ci-running" 2>/dev/null || true
+            echo "CI status: ${CI} — waiting"
+            exit 0
+          fi
+
+          # CI passed + policy passed — assign reviewer
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --remove-label "tier:ci-running" \
+            --add-label "tier:review" 2>/dev/null || \
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "tier:review"
+
+          # Request Copilot code review
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-reviewer "copilot-swe-agent" 2>/dev/null || true
+
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "⚡ **Octi PR Gate — PASSED**
+
+          ${FINDINGS}
+
+          **Stats:** ${STATS}
+          **CI:** ✅ Passed
+          **Next:** Copilot code review assigned.
+
+          _Powered by Octi Pulpo pipeline_"

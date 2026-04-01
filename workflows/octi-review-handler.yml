@@ -1,0 +1,105 @@
+name: "Octi — Review Handler"
+
+on:
+  pull_request_review:
+    types: [submitted]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: octi-review-${{ github.event.pull_request.number || inputs.pr_number }}
+
+jobs:
+  handle-review:
+    name: Handle Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check if agent PR
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number || inputs.pr_number }}"
+          echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+
+          PR_AUTHOR=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json author --jq '.author.login' 2>/dev/null || echo "")
+          IS_AGENT="false"
+          case "$PR_AUTHOR" in
+            app/copilot-swe-agent|Copilot|copilot-swe-agent\[bot\]|github-copilot\[bot\])
+              IS_AGENT="true" ;;
+          esac
+          LABELS=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "tier:review"; then
+            IS_AGENT="true"
+          fi
+          echo "is_agent=${IS_AGENT}" >> $GITHUB_OUTPUT
+
+      - name: Process review
+        if: steps.check.outputs.is_agent == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+          PR_NUMBER: ${{ steps.check.outputs.pr_number }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+        run: |
+          # Count prior "changes_requested" reviews to detect fix loop failures
+          CHANGES_REQUESTED_COUNT=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length' 2>/dev/null || echo "0")
+
+          case "$REVIEW_STATE" in
+            approved)
+              # Check CI one more time before merge
+              PR_SHA=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')
+              CI_OK=$(gh api "repos/$GITHUB_REPOSITORY/commits/${PR_SHA}/check-runs" \
+                --jq '[.check_runs[] | select(.name == "Build & Test")] | .[0].conclusion // "pending"' 2>/dev/null || echo "pending")
+
+              if [ "$CI_OK" = "success" ]; then
+                gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --auto
+                gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "✅ **Octi Review — APPROVED + AUTO-MERGE**
+
+          Review approved and CI passing. Auto-merge queued (squash).
+
+          _Powered by Octi Pulpo pipeline_"
+              else
+                gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "✅ **Octi Review — APPROVED (CI pending)**
+
+          Review approved but CI status is \`${CI_OK}\`. Merge will proceed when CI passes.
+
+          _Powered by Octi Pulpo pipeline_"
+                gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --auto 2>/dev/null || true
+              fi
+              ;;
+
+            changes_requested)
+              if [ "$CHANGES_REQUESTED_COUNT" -ge 2 ]; then
+                # 2+ rounds of changes requested — escalate to Tier B
+                gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "tier:b-code"
+                gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "🔄 **Octi Review — ESCALATING TO TIER B**
+
+          Changes requested ${CHANGES_REQUESTED_COUNT} times. Copilot fix loop exhausted.
+          Escalating to Tier B (senior agent) for manual fix.
+
+          _Powered by Octi Pulpo pipeline_"
+              else
+                # First round — Copilot gets another chance
+                gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "🔄 **Octi Review — Changes Requested**
+
+          Copilot will attempt to address the review feedback.
+          Fix attempt ${CHANGES_REQUESTED_COUNT}/2 before Tier B escalation.
+
+          _Powered by Octi Pulpo pipeline_"
+              fi
+              ;;
+
+            *)
+              echo "Review state '${REVIEW_STATE}' — no action needed"
+              ;;
+          esac

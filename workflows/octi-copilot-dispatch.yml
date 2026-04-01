@@ -1,0 +1,61 @@
+name: "Octi — Copilot Dispatch"
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to dispatch"
+        required: true
+        type: string
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Assign Copilot
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'tier:c'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if already assigned
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          ASSIGNEES=$(gh issue view "$ISSUE_NUMBER" --json assignees --jq '.assignees[].login' 2>/dev/null || echo "")
+          if echo "$ASSIGNEES" | grep -qi "copilot"; then
+            echo "assigned=true" >> $GITHUB_OUTPUT
+          else
+            echo "assigned=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Assign Copilot coding agent
+        if: steps.check.outputs.assigned == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" --add-assignee "copilot-swe-agent"
+
+          gh issue comment "$ISSUE_NUMBER" --body "🤖 **Copilot assigned — Tier C pipeline active.**
+
+          Copilot coding agent will analyze this issue and open a draft PR.
+
+          **Pipeline stages:**
+          1. ✅ **Triage** — classified as Tier C
+          2. ✅ **Dispatch** — Copilot assigned
+          3. ⏳ **Coding** — Copilot implementing
+          4. ⏳ **CI** — build + test
+          5. ⏳ **Review** — automated review
+          6. ⏳ **Merge** — auto-merge if approved
+
+          _Powered by Octi Pulpo pipeline_"

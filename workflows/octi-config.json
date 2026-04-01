@@ -1,0 +1,6 @@
+{
+  "tier_b_mode": "claude-api",
+  "sweeper_interval_hours": 4,
+  "auto_merge": true,
+  "ag_gateway_telemetry": false
+}
