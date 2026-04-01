@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+<defs>
+  <!-- Coral-pink to warm-red gradient, top to bottom -->
+  <linearGradient id="g" x1="200" y1="50" x2="200" y2="350" gradientUnits="userSpaceOnUse">
+    <stop offset="0%"   stop-color="#d63068"/>
+    <stop offset="52%"  stop-color="#e04545"/>
+    <stop offset="100%" stop-color="#e06030"/>
+  </linearGradient>
+</defs>
+
+<!-- Background -->
+<rect width="400" height="400" fill="#13131a" rx="22"/>
+
+<!-- ── GEOMETRIC RING ──────────────────────────────────── -->
+<!--
+  Outer hexagon  R=145 pointy-top, center (200,200)
+    P0(200,55)  P1(325.6,127.5)  P2(325.6,272.5)
+    P3(200,345) P4(74.4,272.5)   P5(74.4,127.5)
+
+  Inner hexagon  R=100 pointy-top
+    Q0(200,100)   Q1(286.6,150)  Q2(286.6,250)
+    Q3(200,300)   Q4(113.4,250)  Q5(113.4,150)
+
+  Outer-edge midpoints (used for 12-facet ring)
+    M01(262.8,91.2)  M12(325.6,200)  M23(262.8,308.8)
+    M34(137.2,308.8) M45(74.4,200)   M50(137.2,91.2)
+
+  Inner-edge midpoints (deeper facets)
+    N01(243.3,125)  N12(286.6,200)  N23(243.3,275)
+    N34(156.7,275)  N45(113.4,200)  N50(156.7,125)
+-->
+
+<!-- Outer hexagon -->
+<polygon points="200,55 325.6,127.5 325.6,272.5 200,345 74.4,272.5 74.4,127.5"
+  fill="none" stroke="url(#g)" stroke-width="2" stroke-linejoin="round"/>
+
+<!-- Inner hexagon -->
+<polygon points="200,100 286.6,150 286.6,250 200,300 113.4,250 113.4,150"
+  fill="none" stroke="url(#g)" stroke-width="1.5" stroke-linejoin="round"/>
+
+<!-- 12 primary facet lines: outer-edge midpoints → adjacent inner vertices -->
+<g stroke="url(#g)" stroke-width="1" fill="none">
+  <line x1="262.8" y1="91.2"  x2="200"   y2="100"/>
+  <line x1="262.8" y1="91.2"  x2="286.6" y2="150"/>
+  <line x1="325.6" y1="200"   x2="286.6" y2="150"/>
+  <line x1="325.6" y1="200"   x2="286.6" y2="250"/>
+  <line x1="262.8" y1="308.8" x2="286.6" y2="250"/>
+  <line x1="262.8" y1="308.8" x2="200"   y2="300"/>
+  <line x1="137.2" y1="308.8" x2="200"   y2="300"/>
+  <line x1="137.2" y1="308.8" x2="113.4" y2="250"/>
+  <line x1="74.4"  y1="200"   x2="113.4" y2="250"/>
+  <line x1="74.4"  y1="200"   x2="113.4" y2="150"/>
+  <line x1="137.2" y1="91.2"  x2="113.4" y2="150"/>
+  <line x1="137.2" y1="91.2"  x2="200"   y2="100"/>
+</g>
+
+<!-- 12 deeper facet lines: outer vertices → inner-edge midpoints (subtle) -->
+<g stroke="url(#g)" stroke-width="0.8" fill="none" opacity="0.5">
+  <line x1="200"   y1="55"    x2="156.7" y2="125"/>
+  <line x1="200"   y1="55"    x2="243.3" y2="125"/>
+  <line x1="325.6" y1="127.5" x2="243.3" y2="125"/>
+  <line x1="325.6" y1="127.5" x2="286.6" y2="200"/>
+  <line x1="325.6" y1="272.5" x2="286.6" y2="200"/>
+  <line x1="325.6" y1="272.5" x2="243.3" y2="275"/>
+  <line x1="200"   y1="345"   x2="243.3" y2="275"/>
+  <line x1="200"   y1="345"   x2="156.7" y2="275"/>
+  <line x1="74.4"  y1="272.5" x2="156.7" y2="275"/>
+  <line x1="74.4"  y1="272.5" x2="113.4" y2="200"/>
+  <line x1="74.4"  y1="127.5" x2="113.4" y2="200"/>
+  <line x1="74.4"  y1="127.5" x2="156.7" y2="125"/>
+</g>
+
+<!-- ── OCTOPUS ────────────────────────────────────────── -->
+<!--
+  Body ellipse: rx=40 ry=34
+  8 arms from R=42 to R=85 with slight clockwise bend
+  Arm at angle θ°:
+    start = (200 + 42·cosθ,  200 − 42·sinθ)
+    end   = (200 + 85·cosθ,  200 − 85·sinθ)
+    ctrl  = (200 + 63·cosθ + 10·sinθ,  200 − 63·sinθ + 10·cosθ)
+-->
+
+<g stroke="url(#g)" stroke-width="2.5" fill="none" stroke-linecap="round">
+  <!-- θ=0°   right       -->  <path d="M 242,200     Q 263,210     285,200"/>
+  <!-- θ=45°  upper-right -->  <path d="M 229.7,170.3 Q 251.6,162.6 260.1,139.9"/>
+  <!-- θ=90°  top         -->  <path d="M 200,158     Q 210,137     200,115"/>
+  <!-- θ=135° upper-left  -->  <path d="M 170.3,170.3 Q 162.6,148.4 139.9,139.9"/>
+  <!-- θ=180° left        -->  <path d="M 158,200     Q 137,190     115,200"/>
+  <!-- θ=225° lower-left  -->  <path d="M 170.3,229.7 Q 148.4,237.4 139.9,260.1"/>
+  <!-- θ=270° bottom      -->  <path d="M 200,242     Q 190,263     200,285"/>
+  <!-- θ=315° lower-right -->  <path d="M 229.7,229.7 Q 237.4,251.6 260.1,260.1"/>
+</g>
+
+<!-- Octopus body -->
+<ellipse cx="200" cy="200" rx="40" ry="34"
+  fill="none" stroke="url(#g)" stroke-width="2.5"/>
+
+<!-- Center medallion: 6-spoke asterisk at R=20 -->
+<!-- spokes at 0°,60°,120°,180°,240°,300° -->
+<g stroke="url(#g)" stroke-width="1.5" stroke-linecap="round">
+  <line x1="200" y1="200" x2="220"   y2="200"/>
+  <line x1="200" y1="200" x2="210"   y2="182.7"/>
+  <line x1="200" y1="200" x2="190"   y2="182.7"/>
+  <line x1="200" y1="200" x2="180"   y2="200"/>
+  <line x1="200" y1="200" x2="190"   y2="217.3"/>
+  <line x1="200" y1="200" x2="210"   y2="217.3"/>
+</g>
+
+<!-- Center fill dot -->
+<circle cx="200" cy="200" r="3.5" fill="url(#g)"/>
+
+<!-- Small diamond accent (lower-right corner, matching original) -->
+<polygon points="372,372 380,364 372,356 364,364"
+  fill="url(#g)" opacity="0.55"/>
+
+</svg>

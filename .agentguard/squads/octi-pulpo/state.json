@@ -1,0 +1,54 @@
+{
+  "squad": "octi-pulpo",
+  "updated_at": "2026-03-31T04:40:00Z",
+  "updated_by": "claude-code:opus:octi-pulpo:em",
+
+  "sprint": {
+    "goal": "Ship admission control + concurrency gates — coordination layer now enforces blast-radius limits before dispatch fires",
+    "status": "COMPLETE",
+    "completed_prs": ["#99"],
+    "notes": "PR #99 merged 2026-03-31T04:40:15Z — admission package: intake scoring, concurrency gates, domain locks. 15 tests green. Closes #96."
+  },
+
+  "next_sprint": {
+    "goal": "Octi Pulpo public presence + preflight coordination enforcement",
+    "candidate_issues": [
+      { "number": 76, "title": "Octi Pulpo landing page", "priority": "P2", "reason": "Public repo, open-core strategy needs product face" },
+      { "number": 95, "title": "Verify Preflight completion before task transitions", "priority": "P3", "reason": "Nice-to-have, depends on Preflight v1 shipping first" }
+    ]
+  },
+
+  "pr_budget": {
+    "max_open": 3,
+    "current_open": 0,
+    "status": "GREEN"
+  },
+
+  "agent_assignments": [],
+
+  "blockers": [
+    {
+      "type": "swarm_health",
+      "severity": "YELLOW",
+      "description": "Copilot circuit OPEN (101 failures, 1d down) — manual intervention may be needed. Codex/Gemini/Goose also open but expected auto-recovery.",
+      "flagged_at": "2026-03-31T04:40:00Z",
+      "expected_recovery": "2026-04-01T00:00:00Z (Copilot expected back Apr 1)"
+    }
+  ],
+
+  "loop_guards": {
+    "retry_loops": "NONE",
+    "blast_radius": "GREEN",
+    "pr_budget": "GREEN",
+    "swarm_health": "YELLOW"
+  },
+
+  "issue_registry": {
+    "closed": [1, 2, 5, 8, 28, 29, 36, 43, 44, 71, 72, 73, 79, 91, 96],
+    "open": [
+      { "number": 95, "title": "Verify Preflight completion before task status transitions", "priority": "P3", "assignee": null },
+      { "number": 76, "title": "feat: Octi Pulpo landing page", "priority": "P2", "assignee": null },
+      { "number": 4,  "title": "Logo", "priority": "P3", "assignee": null }
+    ]
+  }
+}

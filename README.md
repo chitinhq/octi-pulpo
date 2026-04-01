@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="Octi Pulpo" width="360">
+  <img src="docs/assets/logo.svg" alt="Octi Pulpo" width="360">
 </p>
 
 <p align="center">
@@ -18,7 +18,6 @@ Running multiple AI agents? They step on each other. Duplicate work. Miss handof
 
 **Octi Pulpo** is the coordination brain that turns agent chaos into a managed pipeline. It routes work through standardized stages (Architect → Implement → QA → Review → Release), picks the cheapest capable model for each stage, and scales agent sessions dynamically based on queue depth. One binary, sub-millisecond tool responses, zero runtime dependencies beyond Redis.
 
-> **Case study:** We migrated our own 128-agent swarm from an org chart to a pipeline — [read how](docs/case-study-pipeline-migration.md).
 
 ## The Eight Arms
 
