@@ -72,6 +72,14 @@ Agents interact through standard MCP tools:
 | `coord_signal` | Broadcast completion / block / need-help |
 | `coord_wait` | Wait for another agent's output |
 | `route_recommend` | Get optimal model for a task type + budget |
+| `dispatch_event` | Submit an event for routing through the dispatcher |
+| `dispatch_trigger` | Manually dispatch a specific agent with optional budget override |
+| `dispatch_status` | Show dispatch queue depth, pending agents, recent decisions |
+| `dispatch_anthropic` | Dispatch a task to the Anthropic API via ShellForge |
+| `dispatch_ghactions` | Dispatch a task via GitHub Actions `repository_dispatch` |
+| `budget_status` | View per-agent budget (spent, limit, paused status) |
+| `budget_set` | Provision or update an agent's monthly budget |
+| `budget_reset` | Zero out spent amount and unpause an agent |
 
 ## Architecture
 
@@ -84,25 +92,43 @@ Agents interact through standard MCP tools:
 ┌────────────────▼────────────────────────────┐
 │  Octi Pulpo                                 │
 │  Coordination · Memory · Routing · Signals  │
-└────────┬───────────────────┬────────────────┘
-         │                   │
-   Redis (hot state)   Vector DB (cold knowledge)
-         │
-┌────────▼────────────────────────────────────┐
-│  AgentGuard Kernel (optional)               │
+│  Budget Gating · Dispatch Adapters          │
+└───┬────────────┬──────────────┬─────────────┘
+    │            │              │
+    ▼            ▼              ▼
+ Ollama      GH Actions    Anthropic API
+ (free)      (free/ent)    ($50/mo pool)
+    │            │              │
+    │            │        ┌─────▼──────┐
+    │            │        │ ShellForge │
+    │            │        │ (harness)  │
+    │            │        └────────────┘
+    │            │              │
+┌───▼────────────▼──────────────▼─────────────┐
+│  AgentGuard Gateway                         │
 │  Policy enforcement · Telemetry · Invariants│
 └─────────────────────────────────────────────┘
+         │                   │
+   Redis (hot state)   Vector DB (cold knowledge)
 ```
 
-Octi Pulpo is **independent** — it works with any agent swarm, with or without governance. When paired with [AgentGuard](https://github.com/AgentGuardHQ/agentguard), it gains governance-aware routing and denial pattern learning.
+Octi Pulpo is **independent** — it works with any agent swarm, with or without governance. When paired with the [AgentGuard Gateway](https://github.com/AgentGuardHQ/agentguard), agents are governed transparently regardless of execution surface.
+
+### Execution Surfaces
+
+The router picks the cheapest capable surface for each task (Ollama → GitHub Actions → Anthropic API):
+
+- **Ollama** — Free local models for triage, classification, and simple tasks
+- **GitHub Actions** — `repository_dispatch` triggers Copilot-powered workflows at zero marginal cost
+- **Anthropic API** — Per-token burst capacity via [ShellForge](https://github.com/AgentGuardHQ/shellforge) agent harness, gated by a $50/mo budget pool with priority-based thresholds (CRITICAL 0%, HIGH 15%, NORMAL 30%, BACKGROUND 50%)
 
 ## Part of the Governed Swarm Platform
 
 | Repo | Role |
 |------|------|
-| [AgentGuard](https://github.com/AgentGuardHQ/agentguard) | Governance — policy enforcement, telemetry, invariants |
-| **Octi Pulpo** | **Coordination — pipeline controller, model routing, Slack control plane** |
-| [ShellForge](https://github.com/AgentGuardHQ/shellforge) | Orchestration — multi-runtime agent execution |
+| [AgentGuard](https://github.com/AgentGuardHQ/agentguard) | Governance — policy enforcement, gateway, telemetry, invariants |
+| **Octi Pulpo** | **Coordination — pipeline controller, model routing, dispatch adapters, Slack control plane** |
+| [ShellForge](https://github.com/AgentGuardHQ/shellforge) | Execution — agent harness (Ralph Loop, sub-agent orchestration, Anthropic API runner) |
 | [Preflight](https://github.com/AgentGuardHQ/preflight) | Protocol — universal design-before-you-build standard |
 | [Extensions](https://github.com/AgentGuardHQ/agentguard-extensions) | Drivers, integrations, policies, example swarms |
 
@@ -145,6 +171,9 @@ Octi Pulpo is **independent** — it works with any agent swarm, with or without
 - [x] Batches API queue (50% discount, async flush)
 - [x] Episodic + procedural memory (learned recipes from episode clusters)
 - [x] OctiBridge: AgentGuard CLI hooks → Octi Pulpo memory
+- [x] Dispatch adapters (GitHub Actions `repository_dispatch`, Anthropic API via ShellForge)
+- [x] Budget gating ($50/mo pool, priority-based thresholds, per-agent tracking)
+- [x] Cost-cascade router (Ollama → GH Actions → Anthropic API, cheapest-first)
 - [ ] Dependency resolution (Dagu workflow chains)
 - [ ] Health broadcasting with circuit breaker integration
 - [ ] Multi-box coordination protocol
