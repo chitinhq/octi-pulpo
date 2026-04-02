@@ -8,15 +8,18 @@ import (
 
 // ModelTier defines cost/capability tiers for model cascading.
 type ModelTier struct {
-	Model       string  // Anthropic model ID
+	Model       string  // Model ID
 	CostPerMTok float64 // input cost per million tokens (for logging)
+	Provider    string  // "anthropic" or "deepseek"
 }
 
 // DefaultCascade is the cost-ordered model cascade: cheapest first.
+// Tier 0 is DeepSeek for cheap triage/PR-review; tiers 1-3 are Anthropic.
 var DefaultCascade = []ModelTier{
-	{Model: "claude-haiku-4-5-20251001", CostPerMTok: 0.80},
-	{Model: "claude-sonnet-4-6-20260320", CostPerMTok: 3.0},
-	{Model: "claude-opus-4-6-20260320", CostPerMTok: 15.0},
+	{Model: "deepseek-coder", CostPerMTok: 0.14, Provider: "deepseek"},
+	{Model: "claude-haiku-4-5-20251001", CostPerMTok: 0.80, Provider: "anthropic"},
+	{Model: "claude-sonnet-4-6-20260320", CostPerMTok: 3.0, Provider: "anthropic"},
+	{Model: "claude-opus-4-6-20260320", CostPerMTok: 15.0, Provider: "anthropic"},
 }
 
 // TaskComplexity scores a task's complexity to determine model tier.
@@ -95,7 +98,7 @@ func (c *CascadingAdapter) CanAccept(task *Task) bool {
 }
 
 // Dispatch selects the appropriate model tier based on task complexity
-// and dispatches via AnthropicAdapter.
+// and dispatches via the appropriate provider adapter.
 func (c *CascadingAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult, error) {
 	tier := TaskComplexity(task)
 	if tier >= len(c.cascade) {
@@ -103,11 +106,17 @@ func (c *CascadingAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterRe
 	}
 
 	selected := c.cascade[tier]
-	adapter := NewAnthropicAdapter(c.shellforge, selected.Model)
+
+	var adapter Adapter
+	if selected.Provider == "deepseek" {
+		adapter = NewDeepSeekAdapter(c.shellforge, selected.Model)
+	} else {
+		adapter = NewAnthropicAdapter(c.shellforge, selected.Model)
+	}
 
 	result, err := adapter.Dispatch(ctx, task)
 	if result != nil {
-		result.Adapter = fmt.Sprintf("anthropic-cascade:%s", selected.Model)
+		result.Adapter = fmt.Sprintf("%s-cascade:%s", selected.Provider, selected.Model)
 	}
 	return result, err
 }

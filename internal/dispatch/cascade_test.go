@@ -50,9 +50,9 @@ func TestTaskComplexity_CapsAtMax(t *testing.T) {
 		Priority: "critical",
 		Prompt:   "architect a major security refactor with " + string(make([]byte, 3000)),
 	}
-	// All signals fire: bugfix=1 + critical=1 + keyword=1 + long=1 = 4, capped to 2
-	if got := TaskComplexity(task); got != 2 {
-		t.Errorf("max signals: expected 2 (capped), got %d", got)
+	// All signals fire: bugfix=1 + critical=1 + keyword=1 + long=1 = 4, capped to 3 (4 tiers)
+	if got := TaskComplexity(task); got != 3 {
+		t.Errorf("max signals: expected 3 (capped), got %d", got)
 	}
 }
 
@@ -64,13 +64,71 @@ func TestCascadingAdapterName(t *testing.T) {
 }
 
 func TestDefaultCascadeOrder(t *testing.T) {
-	if len(DefaultCascade) != 3 {
-		t.Fatalf("expected 3 tiers, got %d", len(DefaultCascade))
+	if len(DefaultCascade) != 4 {
+		t.Fatalf("expected 4 tiers, got %d", len(DefaultCascade))
 	}
-	if DefaultCascade[0].CostPerMTok >= DefaultCascade[1].CostPerMTok {
-		t.Error("tier 0 should be cheaper than tier 1")
+	for i := 1; i < len(DefaultCascade); i++ {
+		if DefaultCascade[i-1].CostPerMTok >= DefaultCascade[i].CostPerMTok {
+			t.Errorf("tier %d should be cheaper than tier %d", i-1, i)
+		}
 	}
-	if DefaultCascade[1].CostPerMTok >= DefaultCascade[2].CostPerMTok {
-		t.Error("tier 1 should be cheaper than tier 2")
+}
+
+// TestDefaultCascadeHas4Tiers verifies the cascade has exactly 4 tiers and
+// that tier 0 is the DeepSeek model.
+func TestDefaultCascadeHas4Tiers(t *testing.T) {
+	if len(DefaultCascade) != 4 {
+		t.Fatalf("expected 4 tiers, got %d", len(DefaultCascade))
+	}
+	tier0 := DefaultCascade[0]
+	if tier0.Provider != "deepseek" {
+		t.Errorf("tier 0 provider: want deepseek, got %s", tier0.Provider)
+	}
+	if tier0.Model != "deepseek-coder" {
+		t.Errorf("tier 0 model: want deepseek-coder, got %s", tier0.Model)
+	}
+}
+
+// TestTaskComplexityTriageIsDeepSeek verifies that a triage task gets
+// complexity score 0, which maps to the DeepSeek tier.
+func TestTaskComplexityTriageIsDeepSeek(t *testing.T) {
+	task := &Task{
+		ID:       "t1",
+		Type:     "triage",
+		Priority: "normal",
+		Prompt:   "classify this issue",
+	}
+	score := TaskComplexity(task)
+	if score != 0 {
+		t.Fatalf("expected score 0 for triage task, got %d", score)
+	}
+	tier := DefaultCascade[score]
+	if tier.Provider != "deepseek" {
+		t.Errorf("expected tier 0 to be deepseek provider, got %s", tier.Provider)
+	}
+}
+
+// TestAdapterResultQualityFields verifies that AdapterResult carries the new
+// Quality and Escalated fields with their zero values.
+func TestAdapterResultQualityFields(t *testing.T) {
+	r := &AdapterResult{
+		TaskID: "t1",
+		Status: "completed",
+	}
+	if r.Quality != 0.0 {
+		t.Errorf("Quality zero value: want 0.0, got %f", r.Quality)
+	}
+	if r.Escalated != false {
+		t.Errorf("Escalated zero value: want false, got %v", r.Escalated)
+	}
+
+	// Verify the fields can be set and read back.
+	r.Quality = 0.95
+	r.Escalated = true
+	if r.Quality != 0.95 {
+		t.Errorf("Quality: want 0.95, got %f", r.Quality)
+	}
+	if !r.Escalated {
+		t.Error("Escalated: want true, got false")
 	}
 }

@@ -24,12 +24,14 @@ type Task struct {
 
 // AdapterResult is the outcome of a dispatched task.
 type AdapterResult struct {
-	TaskID    string `json:"task_id"`
-	Status    string `json:"status"`     // "completed", "failed", "queued", "denied"
-	Output    string `json:"output"`
-	CostCents int    `json:"cost_cents"`
-	TokensIn  int    `json:"tokens_in"`
-	TokensOut int    `json:"tokens_out"`
-	Adapter   string `json:"adapter"`
-	Error     string `json:"error,omitempty"`
+	TaskID    string  `json:"task_id"`
+	Status    string  `json:"status"`     // "completed", "failed", "queued", "denied"
+	Output    string  `json:"output"`
+	CostCents int     `json:"cost_cents"`
+	TokensIn  int     `json:"tokens_in"`
+	TokensOut int     `json:"tokens_out"`
+	Adapter   string  `json:"adapter"`
+	Error     string  `json:"error,omitempty"`
+	Quality   float64 `json:"quality,omitempty"`   // 0.0–1.0 output quality score
+	Escalated bool    `json:"escalated,omitempty"` // true if retried at a higher tier
 }
