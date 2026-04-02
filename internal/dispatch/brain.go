@@ -103,7 +103,11 @@ func (b *Brain) SetNotifier(n *Notifier) {
 }
 
 // Run starts the brain evaluation loop. Blocks until context is cancelled.
+// Set OCTI_BRAIN_DISPATCH=0 to disable CLI agent dispatch (use pipeline instead).
 func (b *Brain) Run(ctx context.Context) error {
+	if os.Getenv("OCTI_BRAIN_DISPATCH") == "0" {
+		b.log.Printf("brain dispatch DISABLED (OCTI_BRAIN_DISPATCH=0) — pipeline handles work")
+	}
 	b.log.Printf("starting brain loop (tick=%s)", b.tickInterval)
 
 	// Fire immediately on start
@@ -672,6 +676,10 @@ func (b *Brain) executeLeverageAction(ctx context.Context, action LeverageAction
 		Priority: 1,
 	}
 
+	if os.Getenv("OCTI_BRAIN_DISPATCH") == "0" {
+		b.log.Printf("leverage: %s -> BLOCKED (dispatch disabled, score=%.1f, reason=%s)", action.Agent, action.Score, action.Reason)
+		return
+	}
 	result, err := b.dispatcher.Dispatch(ctx, event, action.Agent, 1)
 	if err != nil {
 		b.log.Printf("leverage dispatch %s: %v", action.Agent, err)
@@ -783,6 +791,10 @@ func (b *Brain) checkBackpressureRecovery(ctx context.Context) {
 			Priority: 2,
 		}
 
+		if os.Getenv("OCTI_BRAIN_DISPATCH") == "0" {
+			b.log.Printf("recovery: %s -> BLOCKED (dispatch disabled)", agent)
+			continue
+		}
 		result, err := b.dispatcher.Dispatch(ctx, event, agent, 2)
 		if err != nil {
 			b.log.Printf("re-dispatch %s: %v", agent, err)
