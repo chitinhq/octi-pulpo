@@ -9,6 +9,16 @@ set -euo pipefail
 
 WORKSPACE="${WORKSPACE_DIR:-$HOME/agentguard-workspace}"
 REPO="$WORKSPACE/octi-pulpo"
+
+# Source .env if present (contains COPILOT_PAT, etc.)
+if [ -f "$REPO/.env" ]; then
+  set -a
+  source "$REPO/.env"
+  set +a
+fi
+
+# Map COPILOT_PAT → GITHUB_TOKEN for Go code
+export GITHUB_TOKEN="${GITHUB_TOKEN:-${COPILOT_PAT:-}}"
 BIN="$REPO/bin"
 LOGDIR="$WORKSPACE/server/logs"
 REDIS_URL="${OCTI_REDIS_URL:-redis://localhost:6379}"
