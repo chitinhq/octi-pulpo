@@ -1,0 +1,45 @@
+name: "Octi — Triage Dispatch"
+
+# Thin dispatcher: fires a repository_dispatch to octi-pulpo for centralized triage.
+# The actual Claude API call happens in octi-pulpo's triage handler workflow.
+# Target repos never need an ANTHROPIC_API_KEY.
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to triage"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch to Octi Pulpo
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Send triage request to Octi Pulpo
+        env:
+          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+          SOURCE_REPO: ${{ github.repository }}
+        run: |
+          # Skip if already triaged
+          LABELS=$(gh issue view "$ISSUE_NUMBER" --repo "$SOURCE_REPO" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -qE "^tier:(c|b-scope|b-code|a-groom|a)$"; then
+            echo "SKIP: Already triaged"
+            exit 0
+          fi
+
+          # Fire repository_dispatch to octi-pulpo
+          gh api repos/AgentGuardHQ/octi-pulpo/dispatches \
+            -f event_type="triage" \
+            -f "client_payload[issue_number]=$ISSUE_NUMBER" \
+            -f "client_payload[repo]=$SOURCE_REPO"
+
+          echo "Dispatched triage request for issue #${ISSUE_NUMBER} to octi-pulpo"

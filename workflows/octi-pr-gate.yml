@@ -2,7 +2,7 @@ name: "Octi — PR Gate"
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, synchronize, ready_for_review, review_requested]
   check_suite:
     types: [completed]
   workflow_dispatch:
@@ -42,12 +42,31 @@ jobs:
           fi
           echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
 
-          # Skip draft PRs — wait for ready_for_review event (Copilot signals "done")
+          # Draft handling: Copilot leaves PRs as drafts when done and adds reviewer.
+          # If draft + Copilot author + has review requests → auto-convert to ready.
+          # If draft + no review requests → Copilot still working, skip.
           IS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null || echo "false")
           if [ "$IS_DRAFT" = "true" ]; then
-            echo "is_agent=false" >> $GITHUB_OUTPUT
-            echo "::notice::Skipping draft PR — will process when marked ready for review"
-            exit 0
+            REVIEW_REQUESTS=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json reviewRequests --jq '.reviewRequests | length' 2>/dev/null || echo "0")
+            PR_AUTHOR_CHECK=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json author --jq '.author.login' 2>/dev/null || echo "")
+            case "$PR_AUTHOR_CHECK" in
+              app/copilot-swe-agent|Copilot|copilot-swe-agent\[bot\]|github-copilot\[bot\])
+                if [ "$REVIEW_REQUESTS" -gt 0 ]; then
+                  # Copilot is done — convert draft to ready
+                  gh pr ready "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+                  echo "::notice::Copilot finished — converted draft to ready for review"
+                else
+                  echo "is_agent=false" >> $GITHUB_OUTPUT
+                  echo "::notice::Copilot still working (draft, no review requests yet)"
+                  exit 0
+                fi
+                ;;
+              *)
+                echo "is_agent=false" >> $GITHUB_OUTPUT
+                echo "::notice::Skipping non-Copilot draft PR"
+                exit 0
+                ;;
+            esac
           fi
 
           # Check author
@@ -132,7 +151,7 @@ jobs:
       - name: Check CI status
         id: ci
         env:
-          GH_TOKEN: ${{ secrets.OCTI_PAT }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.detect.outputs.pr_number }}
         run: |
           PR_SHA=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')
