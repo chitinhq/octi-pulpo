@@ -164,6 +164,10 @@ func main() {
 		reviewHandler := dispatch.NewReviewHandler("", "", "")
 		ws.SetReviewHandler(reviewHandler)
 
+		// Wire planner handler — scopes vague issues via Claude API locally
+		plannerHandler := dispatch.NewPlannerHandler("", "", "")
+		ws.SetPlannerHandler(plannerHandler)
+
 		// Wire Slack Events API command handler when credentials are set.
 		if slackSecret := os.Getenv("SLACK_SIGNING_SECRET"); slackSecret != "" {
 			slackBotToken := os.Getenv("SLACK_BOT_TOKEN")

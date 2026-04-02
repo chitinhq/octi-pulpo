@@ -36,6 +36,7 @@ type WebhookServer struct {
 	memoryStore        *memory.Store
 	triageHandler      *TriageHandler
 	reviewHandler      *ReviewHandler
+	plannerHandler     *PlannerHandler
 }
 
 // SetTriageHandler enables automatic issue triage via Claude API.
@@ -46,6 +47,11 @@ func (ws *WebhookServer) SetTriageHandler(th *TriageHandler) {
 // SetReviewHandler enables automatic PR review + merge via Claude API.
 func (ws *WebhookServer) SetReviewHandler(rh *ReviewHandler) {
 	ws.reviewHandler = rh
+}
+
+// SetPlannerHandler enables automatic issue scoping for tier:b-scope issues.
+func (ws *WebhookServer) SetPlannerHandler(ph *PlannerHandler) {
+	ws.plannerHandler = ph
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -242,6 +248,32 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			"error":   fmt.Sprintf("%v", triageErr),
 		})
 		return
+	}
+
+	// Planner: when tier:b-scope label is applied, scope the issue via Claude API
+	if event.Type == EventIssueLabeled && ws.plannerHandler != nil {
+		labelName := event.Payload["label"]
+		if labelName == "tier:b-scope" {
+			issueNumber := int(getNestedNumber(payload, "issue", "number"))
+			title := getNestedString(payload, "issue", "title")
+			issueBody := getNestedString(payload, "issue", "body")
+			go func() {
+				result, err := ws.plannerHandler.HandleIssue(context.Background(), repo, issueNumber, title, issueBody)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] planner error #%d: %v\n", issueNumber, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] planner #%d: escalate=%v subs=%d reason=%s\n",
+						issueNumber, result.Escalate, len(result.SubIssues), result.Reason)
+				}
+			}()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":     true,
+				"action": "planner_dispatched",
+			})
+			return
+		}
 	}
 
 	// Auto-trigger PR gate for Copilot PRs via workflow_dispatch.
@@ -694,7 +726,8 @@ func (ws *WebhookServer) verifySlackSignature(body []byte, timestamp, signature 
 func (ws *WebhookServer) parseGitHubEvent(eventType, action, repo string, payload map[string]interface{}) *Event {
 	switch eventType {
 	case "issues":
-		if action == "opened" {
+		switch action {
+		case "opened":
 			issueNumber := getNestedNumber(payload, "issue", "number")
 			return &Event{
 				Type:     EventIssueOpened,
@@ -706,6 +739,21 @@ func (ws *WebhookServer) parseGitHubEvent(eventType, action, repo string, payloa
 					"issue_number": fmt.Sprintf("%.0f", issueNumber),
 					"title":        getNestedString(payload, "issue", "title"),
 					"body":         getNestedString(payload, "issue", "body"),
+				},
+			}
+		case "labeled":
+			labelName := getNestedString(payload, "label", "name")
+			return &Event{
+				Type:     EventIssueLabeled,
+				Source:   "github",
+				Repo:     repo,
+				Priority: 2,
+				Payload: map[string]string{
+					"action":       action,
+					"issue_number": fmt.Sprintf("%.0f", getNestedNumber(payload, "issue", "number")),
+					"title":        getNestedString(payload, "issue", "title"),
+					"body":         getNestedString(payload, "issue", "body"),
+					"label":        labelName,
 				},
 			}
 		}
