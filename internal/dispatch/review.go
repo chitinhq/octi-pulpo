@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 )
 
 // ReviewResult is the outcome of reviewing a PR.
@@ -26,9 +28,15 @@ type ReviewResult struct {
 // ReviewHandler reviews PRs via Claude API and approves/merges or requests changes.
 // Runs on the Linux box — no secrets needed in GitHub Actions.
 type ReviewHandler struct {
-	ghToken string // GitHub PAT for review/merge
-	apiKey  string // Anthropic API key
-	model   string // default: claude-haiku-4-5-20251001
+	ghToken     string              // GitHub PAT for review/merge
+	apiKey      string              // Anthropic API key
+	model       string              // default: claude-haiku-4-5-20251001
+	budgetStore *budget.BudgetStore // optional: budget enforcement
+}
+
+// SetBudgetStore wires budget tracking into the review handler.
+func (rh *ReviewHandler) SetBudgetStore(bs *budget.BudgetStore) {
+	rh.budgetStore = bs
 }
 
 // NewReviewHandler creates a review handler. Reads tokens from env if empty.
@@ -59,6 +67,19 @@ func (rh *ReviewHandler) HandlePR(ctx context.Context, repo string, prNumber int
 		return &ReviewResult{
 			Decision: "escalate",
 			Summary:  fmt.Sprintf("Escalated to Tier B after %d review rounds", rounds),
+		}, nil
+	}
+
+	// Budget gate: skip Claude API call if pipeline budget exceeded.
+	// Let auto-merge handle it — no review means no blocking.
+	if err := checkBudgetGate(ctx, rh.budgetStore, "reviewer"); err != nil {
+		fmt.Fprintf(os.Stderr, "[octi-pulpo] %v\n", err)
+		return &ReviewResult{
+			Decision:   "approve",
+			Summary:    "Budget exceeded — skipping review, letting auto-merge handle it",
+			Comments:   "Claude API budget exceeded. Review skipped. Auto-merge path.",
+			Confidence: 0.0,
+			Model:      "none (budget-gated)",
 		}, nil
 	}
 
@@ -301,6 +322,10 @@ decision must be "approve" or "request_changes".`,
 
 	// Estimate cost (Sonnet: $3/MTok input, $15/MTok output)
 	costCents := (apiResp.Usage.InputTokens*300 + apiResp.Usage.OutputTokens*1500) / 1_000_000
+
+	// Record cost in budget store
+	recordBudgetCost(ctx, rh.budgetStore, "reviewer", costCents,
+		apiResp.Usage.InputTokens, apiResp.Usage.OutputTokens)
 
 	return &ReviewResult{
 		Decision:   reviewResp.Decision,

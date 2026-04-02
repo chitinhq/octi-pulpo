@@ -158,14 +158,17 @@ func main() {
 
 		// Wire triage handler — Claude API calls stay on this box
 		triageHandler := dispatch.NewTriageHandler("", "", "")
+		triageHandler.SetBudgetStore(budgetStore)
 		ws.SetTriageHandler(triageHandler)
 
 		// Wire review handler — reviews + approves + merges via Claude API locally
 		reviewHandler := dispatch.NewReviewHandler("", "", "")
+		reviewHandler.SetBudgetStore(budgetStore)
 		ws.SetReviewHandler(reviewHandler)
 
 		// Wire planner handler — scopes vague issues via Claude API locally
 		plannerHandler := dispatch.NewPlannerHandler("", "", "")
+		plannerHandler.SetBudgetStore(budgetStore)
 		ws.SetPlannerHandler(plannerHandler)
 
 		// Wire cascade handler — syncs roadmap to issues across repos

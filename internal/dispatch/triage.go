@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 )
 
 // TriageResult is the outcome of classifying an issue.
@@ -24,10 +26,16 @@ type TriageResult struct {
 // TriageHandler classifies GitHub issues via Claude API and labels them.
 // It runs on the Linux box — no secrets needed in GitHub.
 type TriageHandler struct {
-	ghToken    string // GitHub PAT for labeling/commenting
-	apiKey     string // Anthropic API key
-	model      string // default: claude-haiku-4-5-20251001
-	budgetName string // budget agent name for cost tracking
+	ghToken     string              // GitHub PAT for labeling/commenting
+	apiKey      string              // Anthropic API key
+	model       string              // default: claude-haiku-4-5-20251001
+	budgetName  string              // budget agent name for cost tracking
+	budgetStore *budget.BudgetStore // optional: budget enforcement
+}
+
+// SetBudgetStore wires budget tracking into the triage handler.
+func (t *TriageHandler) SetBudgetStore(bs *budget.BudgetStore) {
+	t.budgetStore = bs
 }
 
 // NewTriageHandler creates a triage handler. Reads tokens from env if empty.
@@ -56,6 +64,25 @@ func (t *TriageHandler) HandleIssue(ctx context.Context, repo string, issueNumbe
 		if strings.HasPrefix(l, "tier:") {
 			return &TriageResult{Tier: l, Reason: "already triaged"}, nil
 		}
+	}
+
+	// Budget gate: skip Claude API call if pipeline budget exceeded
+	if err := checkBudgetGate(ctx, t.budgetStore, "triage"); err != nil {
+		fmt.Fprintf(os.Stderr, "[octi-pulpo] %v\n", err)
+		result := &TriageResult{
+			Tier:       "tier:b-scope",
+			Reason:     "budget exceeded — defaulting to safe tier",
+			Confidence: 0.0,
+			Model:      "none (budget-gated)",
+		}
+		if labelErr := t.addLabel(ctx, repo, issueNumber, result.Tier); labelErr != nil {
+			return result, fmt.Errorf("add label: %w", labelErr)
+		}
+		_ = t.removeLabel(ctx, repo, issueNumber, "triage:needed")
+		if commentErr := t.postComment(ctx, repo, issueNumber, result); commentErr != nil {
+			return result, fmt.Errorf("post comment: %w", commentErr)
+		}
+		return result, nil
 	}
 
 	// Classify via Claude API
@@ -201,6 +228,10 @@ If unsure between tier:c and tier:b-scope, choose tier:b-scope. If unsure betwee
 
 	// Estimate cost (Haiku: $0.80/MTok input, $4/MTok output)
 	costCents := (apiResp.Usage.InputTokens*80 + apiResp.Usage.OutputTokens*400) / 1_000_000
+
+	// Record cost in budget store
+	recordBudgetCost(ctx, t.budgetStore, "triage", costCents,
+		apiResp.Usage.InputTokens, apiResp.Usage.OutputTokens)
 
 	return &TriageResult{
 		Tier:       tierResp.Tier,

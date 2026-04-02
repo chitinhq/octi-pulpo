@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
 )
 
 // PlannerResult is the outcome of scoping a vague issue.
@@ -32,9 +34,15 @@ type SubIssue struct {
 // optionally splits into sub-issues, then relabels tier:c for Copilot.
 // Runs on the Linux box — no secrets needed in GitHub.
 type PlannerHandler struct {
-	ghToken string
-	apiKey  string
-	model   string
+	ghToken     string
+	apiKey      string
+	model       string
+	budgetStore *budget.BudgetStore // optional: budget enforcement
+}
+
+// SetBudgetStore wires budget tracking into the planner handler.
+func (p *PlannerHandler) SetBudgetStore(bs *budget.BudgetStore) {
+	p.budgetStore = bs
 }
 
 // NewPlannerHandler creates a planner handler. Reads tokens from env if empty.
@@ -57,6 +65,20 @@ func NewPlannerHandler(ghToken, apiKey, model string) *PlannerHandler {
 
 // HandleIssue scopes a vague issue: analyze → write criteria → optionally split → relabel.
 func (p *PlannerHandler) HandleIssue(ctx context.Context, repo string, issueNumber int, title, body string) (*PlannerResult, error) {
+	// Budget gate: skip Claude API call if pipeline budget exceeded
+	if err := checkBudgetGate(ctx, p.budgetStore, "planner"); err != nil {
+		fmt.Fprintf(os.Stderr, "[octi-pulpo] %v\n", err)
+		_ = p.removeLabel(ctx, repo, issueNumber, "tier:b-scope")
+		_ = p.addLabel(ctx, repo, issueNumber, "tier:a-groom")
+		_ = p.postComment(ctx, repo, issueNumber,
+			"Budget exceeded. Escalating to human grooming. Powered by Octi Pulpo pipeline.")
+		return &PlannerResult{
+			Escalate: true,
+			Reason:   "budget exceeded — escalating to tier:a-groom",
+			Model:    "none (budget-gated)",
+		}, nil
+	}
+
 	// Fetch open issues for context (what's already being worked on)
 	openIssues, _ := p.fetchOpenIssueTitles(ctx, repo)
 
@@ -220,6 +242,10 @@ Rules:
 	}
 
 	costCents := (apiResp.Usage.InputTokens*80 + apiResp.Usage.OutputTokens*400) / 1_000_000
+
+	// Record cost in budget store
+	recordBudgetCost(ctx, p.budgetStore, "planner", costCents,
+		apiResp.Usage.InputTokens, apiResp.Usage.OutputTokens)
 
 	return &PlannerResult{
 		AcceptanceCriteria: planResp.AcceptanceCriteria,
