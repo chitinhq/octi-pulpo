@@ -28,7 +28,7 @@ type ReviewResult struct {
 type ReviewHandler struct {
 	ghToken string // GitHub PAT for review/merge
 	apiKey  string // Anthropic API key
-	model   string // default: claude-sonnet-4-5-20241022
+	model   string // default: claude-haiku-4-5-20251001
 }
 
 // NewReviewHandler creates a review handler. Reads tokens from env if empty.
@@ -40,7 +40,7 @@ func NewReviewHandler(ghToken, apiKey, model string) *ReviewHandler {
 		apiKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
 	if model == "" {
-		model = "claude-sonnet-4-5-20241022"
+		model = "claude-haiku-4-5-20251001"
 	}
 	return &ReviewHandler{
 		ghToken: ghToken,
