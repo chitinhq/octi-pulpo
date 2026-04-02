@@ -12,6 +12,7 @@ const (
 	EventIssueOpened  EventType = "issue.opened"
 	EventPROpened     EventType = "pr.opened"
 	EventPRUpdated    EventType = "pr.updated"
+	EventPRLabeled    EventType = "pr.labeled"
 	EventCICompleted  EventType = "ci.completed"
 	EventTimer        EventType = "timer"         // replaces cron
 	EventBudgetChange EventType = "budget.change"

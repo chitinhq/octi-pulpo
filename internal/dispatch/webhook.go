@@ -35,11 +35,17 @@ type WebhookServer struct {
 	budgetStore        *budget.BudgetStore
 	memoryStore        *memory.Store
 	triageHandler      *TriageHandler
+	reviewHandler      *ReviewHandler
 }
 
 // SetTriageHandler enables automatic issue triage via Claude API.
 func (ws *WebhookServer) SetTriageHandler(th *TriageHandler) {
 	ws.triageHandler = th
+}
+
+// SetReviewHandler enables automatic PR review + merge via Claude API.
+func (ws *WebhookServer) SetReviewHandler(rh *ReviewHandler) {
+	ws.reviewHandler = rh
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -236,6 +242,30 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			"error":   fmt.Sprintf("%v", triageErr),
 		})
 		return
+	}
+
+	// PR review: when tier:review label is applied, review + approve/merge via Claude API
+	if event.Type == EventPRLabeled && ws.reviewHandler != nil {
+		labelName := event.Payload["label"]
+		if labelName == "tier:review" {
+			prNumber := int(getNestedNumber(payload, "pull_request", "number"))
+			go func() {
+				reviewResult, reviewErr := ws.reviewHandler.HandlePR(context.Background(), repo, prNumber)
+				if reviewErr != nil {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] review error PR #%d: %v\n", prNumber, reviewErr)
+				} else {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] review PR #%d: %s (confidence=%.2f, merged=%v)\n",
+						prNumber, reviewResult.Decision, reviewResult.Confidence, reviewResult.Merged)
+				}
+			}()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":     true,
+				"action": "review_dispatched",
+			})
+			return
+		}
 	}
 
 	// Dispatch through the coordinator
@@ -682,6 +712,19 @@ func (ws *WebhookServer) parseGitHubEvent(eventType, action, repo string, payloa
 				Payload: map[string]string{
 					"action":    action,
 					"pr_number": fmt.Sprintf("%.0f", getNestedNumber(payload, "pull_request", "number")),
+				},
+			}
+		case "labeled":
+			labelName := getNestedString(payload, "label", "name")
+			return &Event{
+				Type:     EventPRLabeled,
+				Source:   "github",
+				Repo:     repo,
+				Priority: 1,
+				Payload: map[string]string{
+					"action":    action,
+					"pr_number": fmt.Sprintf("%.0f", getNestedNumber(payload, "pull_request", "number")),
+					"label":     labelName,
 				},
 			}
 		}

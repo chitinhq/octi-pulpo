@@ -160,6 +160,10 @@ func main() {
 		triageHandler := dispatch.NewTriageHandler("", "", "")
 		ws.SetTriageHandler(triageHandler)
 
+		// Wire review handler — reviews + approves + merges via Claude API locally
+		reviewHandler := dispatch.NewReviewHandler("", "", "")
+		ws.SetReviewHandler(reviewHandler)
+
 		// Wire Slack Events API command handler when credentials are set.
 		if slackSecret := os.Getenv("SLACK_SIGNING_SECRET"); slackSecret != "" {
 			slackBotToken := os.Getenv("SLACK_BOT_TOKEN")
