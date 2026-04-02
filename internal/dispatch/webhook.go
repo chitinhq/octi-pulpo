@@ -37,6 +37,7 @@ type WebhookServer struct {
 	triageHandler      *TriageHandler
 	reviewHandler      *ReviewHandler
 	plannerHandler     *PlannerHandler
+	cascadeHandler     *CascadeHandler
 }
 
 // SetTriageHandler enables automatic issue triage via Claude API.
@@ -52,6 +53,11 @@ func (ws *WebhookServer) SetReviewHandler(rh *ReviewHandler) {
 // SetPlannerHandler enables automatic issue scoping for tier:b-scope issues.
 func (ws *WebhookServer) SetPlannerHandler(ph *PlannerHandler) {
 	ws.plannerHandler = ph
+}
+
+// SetCascadeHandler enables strategy cascade — syncs roadmap to issues across repos.
+func (ws *WebhookServer) SetCascadeHandler(ch *CascadeHandler) {
+	ws.cascadeHandler = ch
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -82,6 +88,7 @@ func NewWebhookServer(dispatcher *Dispatcher, secretFile string) *WebhookServer 
 	ws.mux.HandleFunc("/benchmark", ws.handleBenchmark)
 	ws.mux.HandleFunc("/slack/actions", ws.handleSlackActions)
 	ws.mux.HandleFunc("/api/memory", ws.handleMemoryStore)
+	ws.mux.HandleFunc("/cascade/trigger", ws.handleCascadeTrigger)
 	return ws
 }
 
@@ -320,6 +327,29 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Strategy cascade: when roadmap.md or strategy/ changes are pushed to
+	// agentguard-workspace, diff roadmap against managed issues and sync.
+	if event.Type == EventPush && ws.cascadeHandler != nil {
+		if repo == "AgentGuardHQ/agentguard-workspace" && event.Payload["touches_roadmap"] == "true" {
+			go func() {
+				result, err := ws.cascadeHandler.HandlePush(context.Background())
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] cascade error: %v\n", err)
+				} else {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] cascade: created=%d closed=%d relabeled=%d\n",
+						result.Created, result.Closed, result.Relabeled)
+				}
+			}()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":     true,
+				"action": "cascade_dispatched",
+			})
+			return
+		}
+	}
+
 	// Dispatch through the coordinator
 	results, err := ws.dispatcher.DispatchEvent(ctx, *event)
 	if err != nil {
@@ -501,6 +531,29 @@ func (ws *WebhookServer) handleBenchmark(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(metrics)
+}
+
+// handleCascadeTrigger allows manual triggering of the strategy cascade.
+// POST /cascade/trigger — no body needed.
+func (ws *WebhookServer) handleCascadeTrigger(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if ws.cascadeHandler == nil {
+		http.Error(w, "cascade handler not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx := r.Context()
+	result, err := ws.cascadeHandler.HandlePush(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 // SetSlackSigningSecret configures the Slack signing secret used to verify
@@ -809,6 +862,40 @@ func (ws *WebhookServer) parseGitHubEvent(eventType, action, repo string, payloa
 					"action":     action,
 				},
 			}
+		}
+
+	case "push":
+		// Check if any commit touches roadmap.md or strategy/ files
+		touchesRoadmap := "false"
+		if commits, ok := payload["commits"].([]interface{}); ok {
+			for _, c := range commits {
+				cm, ok := c.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				for _, fileKey := range []string{"added", "modified", "removed"} {
+					if files, ok := cm[fileKey].([]interface{}); ok {
+						for _, f := range files {
+							if fname, ok := f.(string); ok {
+								if fname == "roadmap.md" || strings.HasPrefix(fname, "strategy/") {
+									touchesRoadmap = "true"
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		ref := getString(payload, "ref")
+		return &Event{
+			Type:     EventPush,
+			Source:   "github",
+			Repo:     repo,
+			Priority: 2,
+			Payload: map[string]string{
+				"ref":             ref,
+				"touches_roadmap": touchesRoadmap,
+			},
 		}
 	}
 

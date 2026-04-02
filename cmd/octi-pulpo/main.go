@@ -168,6 +168,10 @@ func main() {
 		plannerHandler := dispatch.NewPlannerHandler("", "", "")
 		ws.SetPlannerHandler(plannerHandler)
 
+		// Wire cascade handler — syncs roadmap to issues across repos
+		cascadeHandler := dispatch.NewCascadeHandler("", "", "")
+		ws.SetCascadeHandler(cascadeHandler)
+
 		// Wire Slack Events API command handler when credentials are set.
 		if slackSecret := os.Getenv("SLACK_SIGNING_SECRET"); slackSecret != "" {
 			slackBotToken := os.Getenv("SLACK_BOT_TOKEN")

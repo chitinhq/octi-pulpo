@@ -21,6 +21,7 @@ const (
 	EventSlackAction  EventType = "slack.action"
 	EventCompletion   EventType = "completion"    // agent finished, trigger chain
 	EventSignal       EventType = "signal"        // agent broadcast a signal
+	EventPush         EventType = "push"          // git push to a repo
 )
 
 // Event is the core unit of work entering the dispatcher.
