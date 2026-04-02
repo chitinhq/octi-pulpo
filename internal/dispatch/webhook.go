@@ -244,10 +244,12 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// PR review: when tier:review label is applied, review + approve/merge via Claude API
+	// Senior PR review: when Copilot's fix loop is exhausted (tier:b-code),
+	// Claude takes over as senior reviewer — reviews, approves+merges or requests changes.
+	// Copilot handles initial review rounds via the PR gate + octi-review-handler.yml.
 	if event.Type == EventPRLabeled && ws.reviewHandler != nil {
 		labelName := event.Payload["label"]
-		if labelName == "tier:review" {
+		if labelName == "tier:b-code" {
 			prNumber := int(getNestedNumber(payload, "pull_request", "number"))
 			go func() {
 				reviewResult, reviewErr := ws.reviewHandler.HandlePR(context.Background(), repo, prNumber)
@@ -262,7 +264,7 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"ok":     true,
-				"action": "review_dispatched",
+				"action": "senior_review_dispatched",
 			})
 			return
 		}

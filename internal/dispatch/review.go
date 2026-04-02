@@ -51,6 +51,17 @@ func NewReviewHandler(ghToken, apiKey, model string) *ReviewHandler {
 
 // HandlePR reviews a PR: fetch diff → Claude review → approve/merge or request changes.
 func (rh *ReviewHandler) HandlePR(ctx context.Context, repo string, prNumber int) (*ReviewResult, error) {
+	// Check review iteration count — escalate to tier:b-code after 2 rounds
+	rounds, err := rh.countChangesRequested(ctx, repo, prNumber)
+	if err == nil && rounds >= 2 {
+		_ = rh.removeLabel(ctx, repo, prNumber, "tier:review")
+		_ = rh.addLabel(ctx, repo, prNumber, "tier:b-code")
+		return &ReviewResult{
+			Decision: "escalate",
+			Summary:  fmt.Sprintf("Escalated to Tier B after %d review rounds", rounds),
+		}, nil
+	}
+
 	// Fetch PR metadata
 	prMeta, err := rh.fetchPR(ctx, repo, prNumber)
 	if err != nil {
@@ -89,6 +100,10 @@ func (rh *ReviewHandler) HandlePR(ctx context.Context, repo string, prNumber int
 		if err := rh.postReview(ctx, repo, prNumber, "REQUEST_CHANGES", result.Comments); err != nil {
 			return result, fmt.Errorf("post request_changes: %w", err)
 		}
+		// Remove tier:review so the PR gate can re-add it after Copilot pushes fixes.
+		// This enables the review iteration loop:
+		//   REQUEST_CHANGES → Copilot fixes → synchronize → PR gate → CI → tier:review → ReviewHandler again
+		_ = rh.removeLabel(ctx, repo, prNumber, "tier:review")
 	}
 
 	return result, nil
@@ -324,6 +339,74 @@ func (rh *ReviewHandler) postReview(ctx context.Context, repo string, prNumber i
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("review API returned %d: %s", resp.StatusCode, string(body))
 	}
+	return nil
+}
+
+func (rh *ReviewHandler) countChangesRequested(ctx context.Context, repo string, prNumber int) (int, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d/reviews", repo, prNumber)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+rh.ghToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	var reviews []struct {
+		State string `json:"state"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&reviews); err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, r := range reviews {
+		if r.State == "CHANGES_REQUESTED" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (rh *ReviewHandler) addLabel(ctx context.Context, repo string, prNumber int, label string) error {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/labels", repo, prNumber)
+	body, _ := json.Marshal(map[string][]string{"labels": {label}})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+rh.ghToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (rh *ReviewHandler) removeLabel(ctx context.Context, repo string, prNumber int, label string) error {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d/labels/%s", repo, prNumber, label)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+rh.ghToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
 	return nil
 }
 
