@@ -38,6 +38,7 @@ type WebhookServer struct {
 	reviewHandler      *ReviewHandler
 	plannerHandler     *PlannerHandler
 	cascadeHandler     *CascadeHandler
+	draftConverter     *DraftConverter
 }
 
 // SetTriageHandler enables automatic issue triage via Claude API.
@@ -58,6 +59,11 @@ func (ws *WebhookServer) SetPlannerHandler(ph *PlannerHandler) {
 // SetCascadeHandler enables strategy cascade — syncs roadmap to issues across repos.
 func (ws *WebhookServer) SetCascadeHandler(ch *CascadeHandler) {
 	ws.cascadeHandler = ch
+}
+
+// SetDraftConverter enables automatic draft-to-ready conversion for Copilot PRs.
+func (ws *WebhookServer) SetDraftConverter(dc *DraftConverter) {
+	ws.draftConverter = dc
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -215,6 +221,34 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	githubEvent := r.Header.Get("X-GitHub-Event")
 	action := getString(payload, "action")
 	repo := getNestedString(payload, "repository", "full_name")
+
+	// Draft-to-ready gate: detect when Copilot signals review_requested on a draft PR
+	// and promote it to ready-for-review so normal CI and review pipelines can fire.
+	if githubEvent == "pull_request" && action == "review_requested" && ws.draftConverter != nil {
+		prNumber := int(getNestedNumber(payload, "pull_request", "number"))
+		author := getNestedString(payload, "pull_request", "user", "login")
+		title := getNestedString(payload, "pull_request", "title")
+		isDraft := getNestedBool(payload, "pull_request", "draft")
+
+		if ShouldConvert(author, title, isDraft, action) {
+			go func() {
+				result, err := ws.draftConverter.ConvertToReady(context.Background(), repo, prNumber)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] draft-convert error PR #%d: %v\n", prNumber, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] draft-convert PR #%d: converted=%v reason=%s\n",
+						prNumber, result.Converted, result.Reason)
+				}
+			}()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":     true,
+				"action": "draft_convert_dispatched",
+			})
+			return
+		}
+	}
 
 	// Convert GitHub event to our Event type
 	event := ws.parseGitHubEvent(githubEvent, action, repo, payload)
@@ -1004,4 +1038,26 @@ func getNestedNumber(m map[string]interface{}, keys ...string) float64 {
 		}
 	}
 	return 0
+}
+
+func getNestedBool(m map[string]interface{}, keys ...string) bool {
+	current := m
+	for i, key := range keys {
+		v, ok := current[key]
+		if !ok {
+			return false
+		}
+		if i == len(keys)-1 {
+			if b, ok := v.(bool); ok {
+				return b
+			}
+			return false
+		}
+		if next, ok := v.(map[string]interface{}); ok {
+			current = next
+		} else {
+			return false
+		}
+	}
+	return false
 }
