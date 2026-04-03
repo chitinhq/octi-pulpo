@@ -18,17 +18,17 @@ func TestTaskComplexity_CodeGen(t *testing.T) {
 
 func TestTaskComplexity_CriticalBugfix(t *testing.T) {
 	task := &Task{Type: "bugfix", Priority: "critical", Prompt: "fix the crash"}
-	// bugfix=1 + critical=1 = 2 (Opus)
-	if got := TaskComplexity(task); got != 2 {
-		t.Errorf("bugfix+critical: expected 2, got %d", got)
+	// bugfix=1 + critical=1 = 2 raw, but capped at 1 (Haiku ceiling)
+	if got := TaskComplexity(task); got != 1 {
+		t.Errorf("bugfix+critical: expected 1 (capped at Haiku), got %d", got)
 	}
 }
 
 func TestTaskComplexity_ArchitectureKeyword(t *testing.T) {
 	task := &Task{Type: "code-gen", Priority: "normal", Prompt: "architect a new service layer"}
-	// code-gen=1 + keyword=1 = 2 (Opus)
-	if got := TaskComplexity(task); got != 2 {
-		t.Errorf("code-gen+architect keyword: expected 2, got %d", got)
+	// code-gen=1 + keyword=1 = 2 raw, capped at 1 (Haiku ceiling)
+	if got := TaskComplexity(task); got != 1 {
+		t.Errorf("code-gen+architect keyword: expected 1 (capped), got %d", got)
 	}
 }
 
@@ -38,7 +38,7 @@ func TestTaskComplexity_LongPrompt(t *testing.T) {
 		longPrompt[i] = 'a'
 	}
 	task := &Task{Type: "triage", Priority: "normal", Prompt: string(longPrompt)}
-	// triage=0 + long=1 = 1 (Sonnet)
+	// triage=0 + long=1 = 1 (Haiku)
 	if got := TaskComplexity(task); got != 1 {
 		t.Errorf("triage+long prompt: expected 1, got %d", got)
 	}
@@ -50,9 +50,36 @@ func TestTaskComplexity_CapsAtMax(t *testing.T) {
 		Priority: "critical",
 		Prompt:   "architect a major security refactor with " + string(make([]byte, 3000)),
 	}
-	// All signals fire: bugfix=1 + critical=1 + keyword=1 + long=1 = 4, capped to 3 (4 tiers)
-	if got := TaskComplexity(task); got != 3 {
-		t.Errorf("max signals: expected 3 (capped), got %d", got)
+	// All signals fire: bugfix=1 + critical=1 + keyword=1 + long=1 = 4 raw
+	// Capped to 1 (cascade only has 2 tiers: DeepSeek + Haiku)
+	if got := TaskComplexity(task); got != 1 {
+		t.Errorf("max signals: expected 1 (capped at Haiku), got %d", got)
+	}
+}
+
+func TestNeedsEscalation_SimpleTask(t *testing.T) {
+	task := &Task{Type: "triage", Priority: "normal", Prompt: "classify this"}
+	if NeedsEscalation(task) {
+		t.Error("triage should not need escalation")
+	}
+}
+
+func TestNeedsEscalation_ComplexTask(t *testing.T) {
+	task := &Task{
+		Type:     "bugfix",
+		Priority: "critical",
+		Prompt:   "architect a major security refactor with " + string(make([]byte, 3000)),
+	}
+	if !NeedsEscalation(task) {
+		t.Error("complex critical task should need escalation")
+	}
+}
+
+func TestNeedsEscalation_CodeGen(t *testing.T) {
+	task := &Task{Type: "code-gen", Priority: "normal", Prompt: "add a function"}
+	// raw score = 1, cascade has 2 tiers (0,1), so 1 <= 1 — no escalation
+	if NeedsEscalation(task) {
+		t.Error("simple code-gen should not need escalation")
 	}
 }
 
@@ -64,33 +91,31 @@ func TestCascadingAdapterName(t *testing.T) {
 }
 
 func TestDefaultCascadeOrder(t *testing.T) {
-	if len(DefaultCascade) != 4 {
-		t.Fatalf("expected 4 tiers, got %d", len(DefaultCascade))
+	if len(DefaultCascade) != 2 {
+		t.Fatalf("expected 2 tiers (DeepSeek + Haiku), got %d", len(DefaultCascade))
 	}
-	for i := 1; i < len(DefaultCascade); i++ {
-		if DefaultCascade[i-1].CostPerMTok >= DefaultCascade[i].CostPerMTok {
-			t.Errorf("tier %d should be cheaper than tier %d", i-1, i)
-		}
+	if DefaultCascade[0].CostPerMTok >= DefaultCascade[1].CostPerMTok {
+		t.Error("tier 0 should be cheaper than tier 1")
 	}
 }
 
-// TestDefaultCascadeHas4Tiers verifies the cascade has exactly 4 tiers and
-// that tier 0 is the DeepSeek model.
-func TestDefaultCascadeHas4Tiers(t *testing.T) {
-	if len(DefaultCascade) != 4 {
-		t.Fatalf("expected 4 tiers, got %d", len(DefaultCascade))
+func TestDefaultCascadeHas2Tiers(t *testing.T) {
+	if len(DefaultCascade) != 2 {
+		t.Fatalf("expected 2 tiers, got %d", len(DefaultCascade))
 	}
 	tier0 := DefaultCascade[0]
 	if tier0.Provider != "deepseek" {
 		t.Errorf("tier 0 provider: want deepseek, got %s", tier0.Provider)
 	}
-	if tier0.Model != "deepseek-coder" {
-		t.Errorf("tier 0 model: want deepseek-coder, got %s", tier0.Model)
+	tier1 := DefaultCascade[1]
+	if tier1.Provider != "anthropic" {
+		t.Errorf("tier 1 provider: want anthropic, got %s", tier1.Provider)
+	}
+	if tier1.Model != "claude-haiku-4-5-20251001" {
+		t.Errorf("tier 1 model: want haiku, got %s", tier1.Model)
 	}
 }
 
-// TestTaskComplexityTriageIsDeepSeek verifies that a triage task gets
-// complexity score 0, which maps to the DeepSeek tier.
 func TestTaskComplexityTriageIsDeepSeek(t *testing.T) {
 	task := &Task{
 		ID:       "t1",
@@ -108,21 +133,14 @@ func TestTaskComplexityTriageIsDeepSeek(t *testing.T) {
 	}
 }
 
-// TestAdapterResultQualityFields verifies that AdapterResult carries the new
-// Quality and Escalated fields with their zero values.
 func TestAdapterResultQualityFields(t *testing.T) {
-	r := &AdapterResult{
-		TaskID: "t1",
-		Status: "completed",
-	}
+	r := &AdapterResult{TaskID: "t1", Status: "completed"}
 	if r.Quality != 0.0 {
 		t.Errorf("Quality zero value: want 0.0, got %f", r.Quality)
 	}
 	if r.Escalated != false {
 		t.Errorf("Escalated zero value: want false, got %v", r.Escalated)
 	}
-
-	// Verify the fields can be set and read back.
 	r.Quality = 0.95
 	r.Escalated = true
 	if r.Quality != 0.95 {
@@ -130,5 +148,24 @@ func TestAdapterResultQualityFields(t *testing.T) {
 	}
 	if !r.Escalated {
 		t.Error("Escalated: want true, got false")
+	}
+}
+
+func TestCascadeDispatchEscalates(t *testing.T) {
+	c := NewCascadingAdapter("")
+	task := &Task{
+		Type:     "bugfix",
+		Priority: "critical",
+		Prompt:   "architect a major security refactor with " + string(make([]byte, 3000)),
+	}
+	result, err := c.Dispatch(nil, task)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "escalated" {
+		t.Errorf("expected escalated status, got %s", result.Status)
+	}
+	if !result.Escalated {
+		t.Error("expected Escalated=true")
 	}
 }

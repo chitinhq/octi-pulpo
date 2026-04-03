@@ -14,12 +14,13 @@ type ModelTier struct {
 }
 
 // DefaultCascade is the cost-ordered model cascade: cheapest first.
-// Tier 0 is DeepSeek for cheap triage/PR-review; tiers 1-3 are Anthropic.
+// Capped at Haiku — Sonnet/Opus work is escalated to Jared's Claude Code
+// CLI session (Max subscription) instead of burning API budget.
 var DefaultCascade = []ModelTier{
 	{Model: "deepseek-coder", CostPerMTok: 0.14, Provider: "deepseek"},
 	{Model: "claude-haiku-4-5-20251001", CostPerMTok: 0.80, Provider: "anthropic"},
-	{Model: "claude-sonnet-4-6-20260320", CostPerMTok: 3.0, Provider: "anthropic"},
-	{Model: "claude-opus-4-6-20260320", CostPerMTok: 15.0, Provider: "anthropic"},
+	// Sonnet and Opus removed — escalate to human via GitHub issue instead.
+	// See: feedback_model_budget.md
 }
 
 // TaskComplexity scores a task's complexity to determine model tier.
@@ -61,11 +62,52 @@ func TaskComplexity(task *Task) int {
 		}
 	}
 
-	// Cap at max tier
-	if score > len(DefaultCascade)-1 {
-		score = len(DefaultCascade) - 1
+	// Cap at Haiku (tier 1) — anything above is escalated to human
+	maxTier := len(DefaultCascade) - 1
+	if score > maxTier {
+		score = maxTier
 	}
 
+	return score
+}
+
+// NeedsEscalation returns true if the task complexity exceeds what
+// the automated cascade can handle (i.e., would need Sonnet/Opus).
+// These tasks should be filed as GitHub issues for Jared to handle
+// in his Claude Code CLI session using the Max subscription.
+func NeedsEscalation(task *Task) bool {
+	return rawComplexityScore(task) > len(DefaultCascade)-1
+}
+
+// rawComplexityScore computes the uncapped complexity score.
+func rawComplexityScore(task *Task) int {
+	score := 0
+	switch task.Type {
+	case "triage", "pr-review":
+		score = 0
+	case "qa":
+		score = 1
+	case "code-gen", "bugfix":
+		score = 1
+	}
+	if task.Priority == "critical" {
+		score++
+	}
+	if len(task.Prompt) > 2000 {
+		score++
+	}
+	complexKeywords := []string{
+		"architect", "design", "refactor", "migration",
+		"security", "vulnerability", "performance",
+		"debug complex", "root cause",
+	}
+	promptLower := strings.ToLower(task.Prompt)
+	for _, kw := range complexKeywords {
+		if strings.Contains(promptLower, kw) {
+			score++
+			break
+		}
+	}
 	return score
 }
 
@@ -97,9 +139,21 @@ func (c *CascadingAdapter) CanAccept(task *Task) bool {
 	return NewAnthropicAdapter(c.shellforge, "").CanAccept(task)
 }
 
-// Dispatch selects the appropriate model tier based on task complexity
-// and dispatches via the appropriate provider adapter.
+// Dispatch selects the appropriate model tier based on task complexity.
+// If the task exceeds the cascade ceiling (needs Sonnet/Opus), it returns
+// an "escalated" result instead of burning API budget — the caller should
+// file a GitHub issue for human + Claude Code CLI handling.
 func (c *CascadingAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult, error) {
+	if NeedsEscalation(task) {
+		return &AdapterResult{
+			TaskID:    task.ID,
+			Adapter:   c.Name(),
+			Status:    "escalated",
+			Escalated: true,
+			Error:     "Task complexity exceeds API budget ceiling. Escalate to Jared via Claude Code CLI (Max subscription).",
+		}, nil
+	}
+
 	tier := TaskComplexity(task)
 	if tier >= len(c.cascade) {
 		tier = len(c.cascade) - 1
