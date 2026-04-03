@@ -39,6 +39,7 @@ type WebhookServer struct {
 	plannerHandler     *PlannerHandler
 	cascadeHandler     *CascadeHandler
 	draftConverter     *DraftConverter
+	copilotFix         *CopilotFixLoop
 }
 
 // SetTriageHandler enables automatic issue triage via Claude API.
@@ -64,6 +65,12 @@ func (ws *WebhookServer) SetCascadeHandler(ch *CascadeHandler) {
 // SetDraftConverter enables automatic draft-to-ready conversion for Copilot PRs.
 func (ws *WebhookServer) SetDraftConverter(dc *DraftConverter) {
 	ws.draftConverter = dc
+}
+
+// SetCopilotFixLoop enables the Copilot fix loop — auto-posts @copilot comments
+// when PR reviews request changes.
+func (ws *WebhookServer) SetCopilotFixLoop(cf *CopilotFixLoop) {
+	ws.copilotFix = cf
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -250,6 +257,25 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+	}
+
+	// Copilot fix loop: auto-post @copilot comment when a review requests changes.
+	if githubEvent == "pull_request_review" && action == "submitted" {
+		if ws.copilotFix != nil {
+			reviewState := getNestedString(payload, "review", "state")
+			prNumber := int(getNestedNumber(payload, "pull_request", "number"))
+			go ws.copilotFix.HandleReview(context.Background(), repo, prNumber, reviewState)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "action": "copilot_fix_dispatched"})
+		return
+	}
+
+	// Reset Copilot fix counter when a PR is closed (merged or abandoned).
+	if githubEvent == "pull_request" && action == "closed" && ws.copilotFix != nil {
+		prNumber := int(getNestedNumber(payload, "pull_request", "number"))
+		go ws.copilotFix.ResetAttempts(context.Background(), repo, prNumber)
 	}
 
 	// Convert GitHub event to our Event type
