@@ -40,6 +40,7 @@ type WebhookServer struct {
 	cascadeHandler     *CascadeHandler
 	draftConverter     *DraftConverter
 	copilotFix         *CopilotFixLoop
+	branchUpdater      *BranchUpdater
 }
 
 // SetTriageHandler enables automatic issue triage via Claude API.
@@ -71,6 +72,12 @@ func (ws *WebhookServer) SetDraftConverter(dc *DraftConverter) {
 // when PR reviews request changes.
 func (ws *WebhookServer) SetCopilotFixLoop(cf *CopilotFixLoop) {
 	ws.copilotFix = cf
+}
+
+// SetBranchUpdater enables automatic PR branch updates when the default
+// branch receives new commits.
+func (ws *WebhookServer) SetBranchUpdater(bu *BranchUpdater) {
+	ws.branchUpdater = bu
 }
 
 // NewWebhookServer creates a webhook handler backed by the dispatcher.
@@ -409,6 +416,29 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 				"action": "cascade_dispatched",
 			})
 			return
+		}
+	}
+
+	// Auto-update PR branches when the default branch receives new commits.
+	if githubEvent == "push" && ws.branchUpdater != nil {
+		ref := getString(payload, "ref")
+		defaultBranch := getNestedString(payload, "repository", "default_branch")
+		if defaultBranch != "" && ref == "refs/heads/"+defaultBranch {
+			go func() {
+				updateResults, err := ws.branchUpdater.HandlePush(context.Background(), repo, defaultBranch)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] branch-updater error: %v\n", err)
+				} else {
+					updated := 0
+					for _, r := range updateResults {
+						if r.Updated {
+							updated++
+						}
+					}
+					fmt.Fprintf(os.Stderr, "[octi-pulpo] branch-updater: %d/%d PRs updated in %s\n",
+						updated, len(updateResults), repo)
+				}
+			}()
 		}
 	}
 
