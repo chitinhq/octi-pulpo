@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
@@ -114,7 +115,7 @@ func TestContainsWIP(t *testing.T) {
 		{"[WIP] something", true},
 		{"[wip] something", true},
 		{"feat: add something", false},
-		{"fix: wipeable bug", true}, // contains "wip" substring
+		{"fix: wipeable bug", false}, // "wip" is only a substring, not a standalone word
 		{"", false},
 	}
 	for _, c := range cases {
@@ -136,16 +137,21 @@ func newTestDraftConverter(serverURL, token string) *DraftConverter {
 
 // TestConvertToReady verifies the GitHub API call for converting a draft PR.
 func TestConvertToReady(t *testing.T) {
+	var mu sync.Mutex
 	var capturedMethod string
 	var capturedPath string
 	var capturedBody map[string]interface{}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedMethod = r.Method
-		capturedPath = r.URL.Path
-		if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decode body: %v", err)
 		}
+		mu.Lock()
+		capturedMethod = r.Method
+		capturedPath = r.URL.Path
+		capturedBody = body
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
@@ -167,15 +173,22 @@ func TestConvertToReady(t *testing.T) {
 	if result.PRNumber != 42 {
 		t.Errorf("PRNumber = %d, want 42", result.PRNumber)
 	}
-	if capturedMethod != http.MethodPatch {
-		t.Errorf("method = %s, want PATCH", capturedMethod)
+
+	mu.Lock()
+	method := capturedMethod
+	path := capturedPath
+	body := capturedBody
+	mu.Unlock()
+
+	if method != http.MethodPatch {
+		t.Errorf("method = %s, want PATCH", method)
 	}
-	if capturedPath != "/repos/AgentGuardHQ/octi-pulpo/pulls/42" {
-		t.Errorf("path = %s, want /repos/AgentGuardHQ/octi-pulpo/pulls/42", capturedPath)
+	if path != "/repos/AgentGuardHQ/octi-pulpo/pulls/42" {
+		t.Errorf("path = %s, want /repos/AgentGuardHQ/octi-pulpo/pulls/42", path)
 	}
-	draftVal, ok := capturedBody["draft"].(bool)
+	draftVal, ok := body["draft"].(bool)
 	if !ok || draftVal != false {
-		t.Errorf("body draft = %v, want false", capturedBody["draft"])
+		t.Errorf("body draft = %v, want false", body["draft"])
 	}
 }
 
@@ -192,6 +205,18 @@ func TestConvertToReadyAPIError(t *testing.T) {
 	_, err := dc.ConvertToReady(context.Background(), "AgentGuardHQ/octi-pulpo", 99)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+// TestConvertToReadyNoToken verifies that ConvertToReady returns an error when no token is set.
+func TestConvertToReadyNoToken(t *testing.T) {
+	dc := NewDraftConverter("") // no token, no GITHUB_TOKEN env var
+	// Unset any env-provided token to ensure the empty path is exercised.
+	dc.ghToken = ""
+
+	_, err := dc.ConvertToReady(context.Background(), "AgentGuardHQ/octi-pulpo", 1)
+	if err == nil {
+		t.Fatal("expected error for missing token, got nil")
 	}
 }
 

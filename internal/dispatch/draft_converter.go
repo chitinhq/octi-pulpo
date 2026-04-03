@@ -67,14 +67,31 @@ func ShouldConvert(author, title string, isDraft bool, action string) bool {
 }
 
 // containsWIP returns true if the title contains a WIP marker.
-// Recognised patterns: "WIP", "wip", "[WIP]", "[wip]".
+// Recognised patterns: standalone "WIP" / "wip" word or bracketed "[WIP]" / "[wip]" prefix.
 func containsWIP(title string) bool {
-	return strings.Contains(strings.ToLower(title), "wip")
+	lower := strings.ToLower(title)
+	// Match "[wip]" anywhere in the title (bracketed form).
+	if strings.Contains(lower, "[wip]") {
+		return true
+	}
+	// Match "wip" as a standalone word or colon-prefixed marker (e.g. "wip: ..." or "wip ").
+	for _, part := range strings.Fields(lower) {
+		// Strip trailing punctuation common in prefixes like "wip:"
+		word := strings.TrimRight(part, ":,")
+		if word == "wip" {
+			return true
+		}
+	}
+	return false
 }
 
 // ConvertToReady promotes a draft PR to ready-for-review via the GitHub API.
 // This is equivalent to running `gh pr ready <number>` from the CLI.
 func (dc *DraftConverter) ConvertToReady(ctx context.Context, repo string, prNumber int) (*DraftConvertResult, error) {
+	if dc.ghToken == "" {
+		return nil, fmt.Errorf("GITHUB_TOKEN not set: cannot convert PR #%d to ready-for-review", prNumber)
+	}
+
 	result := &DraftConvertResult{
 		PRNumber: prNumber,
 		Repo:     repo,
@@ -83,7 +100,10 @@ func (dc *DraftConverter) ConvertToReady(ctx context.Context, repo string, prNum
 	// GitHub GraphQL convertPullRequestToDraft inverse: use the REST "ready for review" endpoint.
 	// PATCH /repos/{owner}/{repo}/pulls/{pull_number}  with {"draft": false}
 	apiURL := fmt.Sprintf("%s/repos/%s/pulls/%d", dc.baseURL, repo, prNumber)
-	body, _ := json.Marshal(map[string]bool{"draft": false})
+	body, err := json.Marshal(map[string]bool{"draft": false})
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, apiURL, bytes.NewReader(body))
 	if err != nil {

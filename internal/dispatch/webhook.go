@@ -232,7 +232,9 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 		if ShouldConvert(author, title, isDraft, action) {
 			go func() {
-				result, err := ws.draftConverter.ConvertToReady(context.Background(), repo, prNumber)
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				result, err := ws.draftConverter.ConvertToReady(ctx, repo, prNumber)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "[octi-pulpo] draft-convert error PR #%d: %v\n", prNumber, err)
 				} else {
