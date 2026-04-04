@@ -68,7 +68,7 @@ type Brain struct {
 	stuckAgentAlerted    map[string]time.Time
 	inactiveSquadAlerted map[string]time.Time
 
-	// Adapters for task-based dispatch (Cata + GH Actions).
+	// Adapters for task-based dispatch (Clawta + GH Actions).
 	adapters []Adapter
 
 	// ghToken is used for label state machine operations on GitHub issues.
@@ -89,7 +89,7 @@ func NewBrain(dispatcher *Dispatcher, chains ChainConfig) *Brain {
 	}
 }
 
-// SetAdapters registers task adapters (Cata, GH Actions) for direct dispatch.
+// SetAdapters registers task adapters (Clawta, GH Actions) for direct dispatch.
 func (b *Brain) SetAdapters(adapters ...Adapter) { b.adapters = adapters }
 
 // SetGitHubToken sets the token used for label state machine operations.
@@ -448,7 +448,7 @@ func (b *Brain) checkInactiveSquads(ctx context.Context) {
 // maybeNotifyConstraintChange fires edge-triggered Slack alerts when driver
 // availability transitions between healthy and all-exhausted states.
 // Suppressed when API adapters are available — CLI driver state is noise
-// when dispatch flows through Cata/GH Actions.
+// when dispatch flows through Clawta/GH Actions.
 func (b *Brain) maybeNotifyConstraintChange(ctx context.Context, constraint Constraint) {
 	if b.notifier == nil || !b.notifier.Enabled() {
 		return
@@ -475,7 +475,7 @@ func (b *Brain) maybeNotifyConstraintChange(ctx context.Context, constraint Cons
 // Checked in priority order — first match wins.
 func (b *Brain) identifyConstraint(ctx context.Context) Constraint {
 	// 1. All CLI drivers exhausted — but only block if no API adapters exist.
-	// API adapters (Cata, GH Actions) dispatch independently of CLI driver health.
+	// API adapters (Clawta, GH Actions) dispatch independently of CLI driver health.
 	decision := b.dispatcher.router.Recommend("brain-constraint-check", b.dispatcher.router.DynamicBudget())
 	if decision.Skip && len(b.adapters) == 0 {
 		return Constraint{
@@ -708,7 +708,7 @@ func (b *Brain) executeLeverageAction(ctx context.Context, action LeverageAction
 		return
 	}
 
-	// Adapter-based dispatch: create a Task and route to Cata or GH Actions.
+	// Adapter-based dispatch: create a Task and route to Clawta or GH Actions.
 	// Dedup: skip if we dispatched this issue recently (10 min cooldown).
 	dispatchKey := fmt.Sprintf("%s#%d", action.Repo, action.IssueNum)
 	if last, ok := b.stuckAgentAlerted[dispatchKey]; ok && time.Since(last) < 10*time.Minute {
@@ -744,7 +744,7 @@ func (b *Brain) executeLeverageAction(ctx context.Context, action LeverageAction
 				}
 
 				// Fire adapter dispatch in a goroutine so the brain tick
-				// is not blocked by long-running adapters (e.g. Cata ~10 min).
+				// is not blocked by long-running adapters (e.g. Clawta ~10 min).
 				go func(a Adapter, t *Task, repo string, issueNum int) {
 					result, err := a.Dispatch(context.Background(), t)
 					if err != nil {
@@ -840,7 +840,7 @@ func (b *Brain) srForSquad(squad string) string {
 		"octi-pulpo": "octi-pulpo-sr",
 		"studio":     "studio-sr",
 		"analytics":  "analytics-sr",
-		"cata":       "cata-sr",
+		"clawta":     "clawta-sr",
 		"sentinel":   "sentinel-sr",
 		"llmint":     "llmint-sr",
 		"ops":        "kernel-sr",

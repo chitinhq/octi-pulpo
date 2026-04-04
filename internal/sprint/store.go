@@ -120,7 +120,7 @@ var DefaultRepos = []string{
 	"AgentGuardHQ/agentguard",
 	"AgentGuardHQ/octi-pulpo",
 	"AgentGuardHQ/shellforge",
-	"AgentGuardHQ/cata",
+	"AgentGuardHQ/clawta",
 	"AgentGuardHQ/sentinel",
 	"AgentGuardHQ/llmint",
 	"AgentGuardHQ/agentguard-analytics",

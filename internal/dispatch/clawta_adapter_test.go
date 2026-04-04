@@ -10,54 +10,54 @@ import (
 
 // ---- Name ----
 
-func TestCataAdapterName(t *testing.T) {
-	a := NewCataAdapter("", "", "", "")
-	if got := a.Name(); got != "cata" {
-		t.Errorf("Name(): want cata, got %s", got)
+func TestClawtaAdapterName(t *testing.T) {
+	a := NewClawtaAdapter("", "", "", "")
+	if got := a.Name(); got != "clawta" {
+		t.Errorf("Name(): want clawta, got %s", got)
 	}
 }
 
 // ---- CanAccept ----
 
-func TestCataAdapterCanAcceptCodeGen(t *testing.T) {
+func TestClawtaAdapterCanAcceptCodeGen(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
-	a := NewCataAdapter("", "", "", "")
+	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "code-gen"}
 	if !a.CanAccept(task) {
 		t.Error("CanAccept(code-gen) with key: want true, got false")
 	}
 }
 
-func TestCataAdapterCanAcceptBugfix(t *testing.T) {
+func TestClawtaAdapterCanAcceptBugfix(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
-	a := NewCataAdapter("", "", "", "")
+	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "bugfix"}
 	if !a.CanAccept(task) {
 		t.Error("CanAccept(bugfix) with key: want true, got false")
 	}
 }
 
-func TestCataAdapterCanAcceptConfig(t *testing.T) {
+func TestClawtaAdapterCanAcceptConfig(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
-	a := NewCataAdapter("", "", "", "")
+	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "config"}
 	if !a.CanAccept(task) {
 		t.Error("CanAccept(config) with key: want true, got false")
 	}
 }
 
-func TestCataAdapterCanAcceptEvolve(t *testing.T) {
+func TestClawtaAdapterCanAcceptEvolve(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
-	a := NewCataAdapter("", "", "", "")
+	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "evolve"}
 	if !a.CanAccept(task) {
 		t.Error("CanAccept(evolve) with key: want true, got false")
 	}
 }
 
-func TestCataAdapterCanAcceptEvolveSubTypes(t *testing.T) {
+func TestClawtaAdapterCanAcceptEvolveSubTypes(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
-	a := NewCataAdapter("", "", "", "")
+	a := NewClawtaAdapter("", "", "", "")
 	for _, typ := range []string{"prompt_config", "tool_addition", "config_change"} {
 		task := &Task{Type: typ}
 		if !a.CanAccept(task) {
@@ -66,27 +66,27 @@ func TestCataAdapterCanAcceptEvolveSubTypes(t *testing.T) {
 	}
 }
 
-func TestCataAdapterRejectsPRReview(t *testing.T) {
+func TestClawtaAdapterRejectsPRReview(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
-	a := NewCataAdapter("", "", "", "")
+	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "pr-review"}
 	if a.CanAccept(task) {
 		t.Error("CanAccept(pr-review): want false, got true")
 	}
 }
 
-func TestCataAdapterRejectsTriage(t *testing.T) {
+func TestClawtaAdapterRejectsTriage(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
-	a := NewCataAdapter("", "", "", "")
+	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "triage"}
 	if a.CanAccept(task) {
 		t.Error("CanAccept(triage): want false, got true")
 	}
 }
 
-func TestCataAdapterRejectsWithoutKey(t *testing.T) {
+func TestClawtaAdapterRejectsWithoutKey(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
-	a := NewCataAdapter("", "", "", "")
+	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "code-gen"}
 	if a.CanAccept(task) {
 		t.Error("CanAccept(code-gen) without key: want false, got true")
@@ -95,23 +95,23 @@ func TestCataAdapterRejectsWithoutKey(t *testing.T) {
 
 // ---- Defaults ----
 
-func TestCataAdapterDefaults(t *testing.T) {
-	a := NewCataAdapter("", "", "", "")
-	if a.binary != defaultCataBinary {
-		t.Errorf("default binary: want %s, got %s", defaultCataBinary, a.binary)
+func TestClawtaAdapterDefaults(t *testing.T) {
+	a := NewClawtaAdapter("", "", "", "")
+	if a.binary != defaultClawtaBinary {
+		t.Errorf("default binary: want %s, got %s", defaultClawtaBinary, a.binary)
 	}
-	if a.model != defaultCataModel {
-		t.Errorf("default model: want %s, got %s", defaultCataModel, a.model)
+	if a.model != defaultClawtaModel {
+		t.Errorf("default model: want %s, got %s", defaultClawtaModel, a.model)
 	}
-	if a.provider != defaultCataProvider {
-		t.Errorf("default provider: want %s, got %s", defaultCataProvider, a.provider)
+	if a.provider != defaultClawtaProvider {
+		t.Errorf("default provider: want %s, got %s", defaultClawtaProvider, a.provider)
 	}
 }
 
-func TestCataAdapterCustomValues(t *testing.T) {
-	a := NewCataAdapter("/usr/local/bin/cata", "deepseek-v3", "anthropic", "/tmp/ws")
-	if a.binary != "/usr/local/bin/cata" {
-		t.Errorf("binary: want /usr/local/bin/cata, got %s", a.binary)
+func TestClawtaAdapterCustomValues(t *testing.T) {
+	a := NewClawtaAdapter("/usr/local/bin/clawta", "deepseek-v3", "anthropic", "/tmp/ws")
+	if a.binary != "/usr/local/bin/clawta" {
+		t.Errorf("binary: want /usr/local/bin/clawta, got %s", a.binary)
 	}
 	if a.model != "deepseek-v3" {
 		t.Errorf("model: want deepseek-v3, got %s", a.model)
@@ -150,7 +150,7 @@ func TestSanitizeBranch(t *testing.T) {
 
 // TestDetectDefaultBranchMaster verifies that detectDefaultBranch returns
 // "master" when origin/main does not exist. Uses a real temp git repo with
-// a "master" remote branch to avoid actually calling the cata binary.
+// a "master" remote branch to avoid actually calling the clawta binary.
 func TestDetectDefaultBranchMaster(t *testing.T) {
 	// Build a bare "remote" repo with only a master branch.
 	remoteDir := t.TempDir()
@@ -207,16 +207,16 @@ func TestDetectDefaultBranchMain(t *testing.T) {
 
 // ---- Dispatch (mocked subprocess) ----
 
-// TestCataAdapterDispatchMissingBinary verifies that when the binary does not
+// TestClawtaAdapterDispatchMissingBinary verifies that when the binary does not
 // exist the result status is "failed" and no panic occurs.
 // The worktree creation will also fail (no real git repo), which is the first
 // failure surface — the adapter must handle it gracefully.
-func TestCataAdapterDispatchFailsGracefully(t *testing.T) {
+func TestClawtaAdapterDispatchFailsGracefully(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 
 	// Use a tmp dir that is NOT a git repo so worktree add fails immediately.
 	ws := t.TempDir()
-	a := NewCataAdapter("cata-does-not-exist", "", "", ws)
+	a := NewClawtaAdapter("clawta-does-not-exist", "", "", ws)
 
 	task := &Task{
 		ID:     "test-task-001",
@@ -236,8 +236,8 @@ func TestCataAdapterDispatchFailsGracefully(t *testing.T) {
 	if result.Status != "failed" {
 		t.Errorf("Status: want failed, got %s", result.Status)
 	}
-	if result.Adapter != "cata" {
-		t.Errorf("Adapter: want cata, got %s", result.Adapter)
+	if result.Adapter != "clawta" {
+		t.Errorf("Adapter: want clawta, got %s", result.Adapter)
 	}
 	if result.TaskID != "test-task-001" {
 		t.Errorf("TaskID: want test-task-001, got %s", result.TaskID)
