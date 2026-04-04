@@ -153,7 +153,7 @@ func (b *Brain) Tick(ctx context.Context) {
 	if b.sprintStore != nil {
 		constraint := b.identifyConstraint(ctx)
 		b.maybeNotifyConstraintChange(ctx, constraint)
-		if constraint.Type != "none" && constraint.Type != "all_drivers_down" {
+		if constraint.Type != "all_drivers_down" {
 			action := b.highestLeverageAction(ctx, constraint)
 			if action != nil {
 				b.executeLeverageAction(ctx, *action)
@@ -450,8 +450,7 @@ func (b *Brain) maybeNotifyConstraintChange(ctx context.Context, constraint Cons
 // identifyConstraint reads system state and returns the single most important constraint.
 // Checked in priority order — first match wins.
 func (b *Brain) identifyConstraint(ctx context.Context) Constraint {
-	// 1. All drivers exhausted (within current budget policy; "high"/API tier is never
-	// assumed available automatically — use DynamicBudget to stay within economics)
+	// 1. All drivers exhausted (within current budget policy)
 	decision := b.dispatcher.router.Recommend("brain-constraint-check", b.dispatcher.router.DynamicBudget())
 	if decision.Skip {
 		return Constraint{
