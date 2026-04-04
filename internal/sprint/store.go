@@ -125,6 +125,9 @@ var DefaultRepos = []string{
 	"AgentGuardHQ/llmint",
 	"AgentGuardHQ/agentguard-analytics",
 	"AgentGuardHQ/agentguard-cloud",
+	"AgentGuardHQ/agentguard-workspace",
+	"AgentGuardHQ/agentguard-extensions",
+	"AgentGuardHQ/preflight",
 }
 
 // NewStore creates a sprint store backed by Redis.
@@ -842,6 +845,10 @@ func inferSquadFromRepo(repo string) string {
 		return "cloud"
 	case name == "agentguard-analytics":
 		return "analytics"
+	case name == "agentguard-extensions" || name == "preflight" || name == "homebrew-tap":
+		return "kernel"
+	case name == "agentguard-workspace":
+		return "ops"
 	case name == "shellforge":
 		return "shellforge"
 	case name == "octi-pulpo":
