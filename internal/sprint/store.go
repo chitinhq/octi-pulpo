@@ -90,6 +90,24 @@ func classifyFastPath(title string, labels []string) bool {
 	return false
 }
 
+// dispatchLabelStatus maps dispatch state machine labels to sprint item statuses.
+// Returns "" if no dispatch label is present.
+func dispatchLabelStatus(labels []string) string {
+	for _, lbl := range labels {
+		switch lbl {
+		case "agent:claimed":
+			return "claimed"
+		case "agent:done":
+			return "done"
+		case "agent:review":
+			return "pr_open"
+		case "agent:blocked":
+			return "blocked"
+		}
+	}
+	return ""
+}
+
 // Store manages sprint items in Redis, synced from GitHub issues.
 type Store struct {
 	rdb       *redis.Client
@@ -102,6 +120,11 @@ var DefaultRepos = []string{
 	"AgentGuardHQ/agentguard",
 	"AgentGuardHQ/octi-pulpo",
 	"AgentGuardHQ/shellforge",
+	"AgentGuardHQ/cata",
+	"AgentGuardHQ/sentinel",
+	"AgentGuardHQ/llmint",
+	"AgentGuardHQ/agentguard-analytics",
+	"AgentGuardHQ/agentguard-cloud",
 }
 
 // NewStore creates a sprint store backed by Redis.
@@ -225,13 +248,31 @@ func (s *Store) Sync(ctx context.Context, repo string) error {
 			FastPath:  classifyFastPath(issue.Title, labelNames),
 		}
 
+		// Dispatch state machine labels override local status — GitHub is
+		// the source of truth for claim/done state set by the brain.
+		if labelStatus := dispatchLabelStatus(labelNames); labelStatus != "" {
+			item.Status = labelStatus
+		}
+
 		// Preserve status from existing item if it was already tracked
-		if existing != "" {
+		// and no dispatch label overrode it above.
+		if item.Status == "open" && existing != "" {
 			var prev SprintItem
 			if err := json.Unmarshal([]byte(existing), &prev); err == nil {
 				if prev.Status != "" && prev.Status != "open" {
 					item.Status = prev.Status
 				}
+				if prev.PRNumber > 0 {
+					item.PRNumber = prev.PRNumber
+				}
+				if len(prev.DependsOn) > 0 {
+					item.DependsOn = prev.DependsOn
+				}
+			}
+		} else if existing != "" {
+			// Still preserve PRNumber and DependsOn even when label overrode status
+			var prev SprintItem
+			if err := json.Unmarshal([]byte(existing), &prev); err == nil {
 				if prev.PRNumber > 0 {
 					item.PRNumber = prev.PRNumber
 				}

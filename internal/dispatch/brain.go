@@ -30,6 +30,7 @@ type LeverageAction struct {
 	Repo     string
 	Score    float64
 	Reason   string
+	TaskType string // maps to adapter task types: "bugfix", "code-gen", "config", etc.
 }
 
 // Brain runs a periodic evaluation loop that decides what to dispatch
@@ -395,7 +396,12 @@ func (b *Brain) checkStuckAgents(ctx context.Context) {
 
 // checkInactiveSquads inspects the recent dispatch log and alerts when a squad
 // has had no dispatch activity for more than 24 hours.
+// Suppressed when API adapters are available — adapter dispatch activity isn't
+// recorded in the legacy dispatch log, so squads would always appear idle.
 func (b *Brain) checkInactiveSquads(ctx context.Context) {
+	if len(b.adapters) > 0 {
+		return
+	}
 	records, err := b.dispatcher.RecentDispatches(ctx, 200)
 	if err != nil || len(records) == 0 {
 		return
@@ -441,8 +447,14 @@ func (b *Brain) checkInactiveSquads(ctx context.Context) {
 
 // maybeNotifyConstraintChange fires edge-triggered Slack alerts when driver
 // availability transitions between healthy and all-exhausted states.
+// Suppressed when API adapters are available — CLI driver state is noise
+// when dispatch flows through Cata/GH Actions.
 func (b *Brain) maybeNotifyConstraintChange(ctx context.Context, constraint Constraint) {
 	if b.notifier == nil || !b.notifier.Enabled() {
+		return
+	}
+	// When adapters handle dispatch, CLI driver state is informational only.
+	if len(b.adapters) > 0 {
 		return
 	}
 	nowDown := constraint.Type == "all_drivers_down"
@@ -584,6 +596,7 @@ func (b *Brain) leverageForP0(ctx context.Context) *LeverageAction {
 				Repo:     item.Repo,
 				Score:    10.0,
 				Reason:   fmt.Sprintf("P0 bug: %s", item.Title),
+				TaskType: "bugfix",
 			}
 		}
 	}
@@ -613,6 +626,7 @@ func (b *Brain) leverageForIdleAgents(ctx context.Context) *LeverageAction {
 		Repo:     item.Repo,
 		Score:    5.0,
 		Reason:   fmt.Sprintf("idle agents detected, assigning sprint item: %s", item.Title),
+		TaskType: inferTaskType(item.Title),
 	}
 }
 
@@ -671,6 +685,7 @@ func (b *Brain) leverageForNextSprint(ctx context.Context) *LeverageAction {
 		Repo:     item.Repo,
 		Score:    3.0,
 		Reason:   fmt.Sprintf("next sprint item (P%d): %s", item.Priority, item.Title),
+		TaskType: inferTaskType(item.Title),
 	}
 }
 
@@ -701,9 +716,13 @@ func (b *Brain) executeLeverageAction(ctx context.Context, action LeverageAction
 	}
 
 	if len(b.adapters) > 0 && action.Repo != "" {
+		taskType := action.TaskType
+		if taskType == "" {
+			taskType = "code-gen"
+		}
 		task := &Task{
 			ID:       fmt.Sprintf("brain-%d-%d", action.IssueNum, time.Now().Unix()),
-			Type:     "code",
+			Type:     taskType,
 			Repo:     action.Repo,
 			Prompt:   fmt.Sprintf("Fix issue #%d: %s", action.IssueNum, action.Reason),
 			Priority: "high",
@@ -712,15 +731,10 @@ func (b *Brain) executeLeverageAction(ctx context.Context, action LeverageAction
 			if adapter.CanAccept(task) {
 				b.log.Printf("leverage: %s#%d -> adapter %s (score=%.1f, reason=%s)",
 					action.Repo, action.IssueNum, adapter.Name(), action.Score, action.Reason)
-				result, err := adapter.Dispatch(ctx, task)
-				if err != nil {
-					b.log.Printf("adapter %s dispatch error: %v", adapter.Name(), err)
-					continue
-				}
-				b.log.Printf("leverage: %s#%d -> %s (%s)", action.Repo, action.IssueNum, adapter.Name(), result.Status)
-				b.stuckAgentAlerted[dispatchKey] = time.Now()
 
-				// State machine: mark issue as claimed on GitHub
+				// Register dedup + label synchronously so the brain
+				// immediately moves on. Adapter execution is async.
+				b.stuckAgentAlerted[dispatchKey] = time.Now()
 				if action.IssueNum > 0 {
 					if err := b.addIssueLabel(ctx, action.Repo, action.IssueNum, LabelClaimed); err != nil {
 						b.log.Printf("label: failed to add %s to %s#%d: %v", LabelClaimed, action.Repo, action.IssueNum, err)
@@ -728,6 +742,19 @@ func (b *Brain) executeLeverageAction(ctx context.Context, action LeverageAction
 						b.log.Printf("label: %s#%d -> %s", action.Repo, action.IssueNum, LabelClaimed)
 					}
 				}
+
+				// Fire adapter dispatch in a goroutine so the brain tick
+				// is not blocked by long-running adapters (e.g. Cata ~10 min).
+				go func(a Adapter, t *Task, repo string, issueNum int) {
+					result, err := a.Dispatch(context.Background(), t)
+					if err != nil {
+						b.log.Printf("adapter %s async result: %s#%d error: %v", a.Name(), repo, issueNum, err)
+						b.notifyAdapterResult(a.Name(), repo, issueNum, "error", err.Error())
+						return
+					}
+					b.log.Printf("adapter %s async result: %s#%d -> %s", a.Name(), repo, issueNum, result.Status)
+					b.notifyAdapterResult(a.Name(), repo, issueNum, result.Status, result.Error)
+				}(adapter, task, action.Repo, action.IssueNum)
 				return
 			}
 		}
@@ -794,6 +821,16 @@ func (b *Brain) findStalePRs(ctx context.Context) int {
 	return staleCount
 }
 
+// notifyAdapterResult posts a Slack notification for an adapter dispatch outcome.
+func (b *Brain) notifyAdapterResult(adapter, repo string, issueNum int, status, errMsg string) {
+	if b.notifier == nil || !b.notifier.Enabled() {
+		return
+	}
+	if err := b.notifier.PostAdapterDispatch(context.Background(), adapter, repo, issueNum, status, errMsg); err != nil {
+		b.log.Printf("slack adapter dispatch: %v", err)
+	}
+}
+
 // srForSquad returns the SR agent name for a given squad.
 func (b *Brain) srForSquad(squad string) string {
 	mapping := map[string]string{
@@ -803,6 +840,9 @@ func (b *Brain) srForSquad(squad string) string {
 		"octi-pulpo": "octi-pulpo-sr",
 		"studio":     "studio-sr",
 		"analytics":  "analytics-sr",
+		"cata":       "cata-sr",
+		"sentinel":   "sentinel-sr",
+		"llmint":     "llmint-sr",
 	}
 	return mapping[squad]
 }
@@ -956,4 +996,19 @@ func FormatChainGraph(chains ChainConfig) string {
 		}
 	}
 	return out
+}
+
+// inferTaskType guesses the adapter task type from an issue title.
+// Returns "bugfix" for bug-related titles, "config" for config/CI titles,
+// and "code-gen" as the default.
+func inferTaskType(title string) string {
+	lower := strings.ToLower(title)
+	switch {
+	case strings.Contains(lower, "bug") || strings.Contains(lower, "fix") || strings.Contains(lower, "broken"):
+		return "bugfix"
+	case strings.Contains(lower, "config") || strings.Contains(lower, "ci") || strings.Contains(lower, "yaml"):
+		return "config"
+	default:
+		return "code-gen"
+	}
 }
