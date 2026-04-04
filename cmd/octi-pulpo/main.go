@@ -217,11 +217,11 @@ func main() {
 			brain.SetSprintStore(sprintStore)
 			brain.SetProfileStore(profiles)
 			brain.SetStandupStore(standupStore)
-			// Wire task adapters: Cata (local DeepSeek) → GH Actions (Copilot) fallback
-			cataBinary := filepath.Join(home, "agentguard-workspace", "cata", "bench", "cata-linux-amd64")
-			cataAdapter := dispatch.NewCataAdapter(cataBinary, "", "", "")
-			cataAdapter.SetLearner(taskLearner)
-			brain.SetAdapters(cataAdapter, ghActionsAdapter)
+			// Wire task adapters: Clawta (local DeepSeek) → GH Actions (Copilot) fallback
+			clawtaBinary := filepath.Join(home, "agentguard-workspace", "clawta", "bench", "clawta-linux-amd64")
+			clawtaAdapter := dispatch.NewClawtaAdapter(clawtaBinary, "", "", "")
+			clawtaAdapter.SetLearner(taskLearner)
+			brain.SetAdapters(clawtaAdapter, ghActionsAdapter)
 			if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
 				brain.SetGitHubToken(ghToken)
 			}

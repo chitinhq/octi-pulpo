@@ -13,40 +13,40 @@ import (
 )
 
 const (
-	defaultCataModel    = "deepseek-chat"
-	cataTimeout         = 10 * time.Minute
-	defaultCataBinary   = "cata"
-	defaultCataProvider = "deepseek"
+	defaultClawtaModel    = "deepseek-chat"
+	clawtaTimeout         = 10 * time.Minute
+	defaultClawtaBinary   = "clawta"
+	defaultClawtaProvider = "deepseek"
 )
 
-// CataAdapter dispatches tasks to the Cata governed CLI agent.
-// Cata runs in an isolated git worktree, implements the task,
+// ClawtaAdapter dispatches tasks to the Clawta governed CLI agent.
+// Clawta runs in an isolated git worktree, implements the task,
 // commits, pushes a branch, and opens a PR.
-type CataAdapter struct {
-	binary    string // path to cata binary
+type ClawtaAdapter struct {
+	binary    string // path to clawta binary
 	model     string
 	provider  string
 	workspace string // root workspace path
 	learner   *learner.Learner
 }
 
-// NewCataAdapter creates a CataAdapter. Zero-value strings fall back to
-// defaults: binary="cata", model="deepseek-chat", provider="deepseek",
+// NewClawtaAdapter creates a ClawtaAdapter. Zero-value strings fall back to
+// defaults: binary="clawta", model="deepseek-chat", provider="deepseek",
 // workspace="$HOME/agentguard-workspace".
-func NewCataAdapter(binary, model, provider, workspace string) *CataAdapter {
+func NewClawtaAdapter(binary, model, provider, workspace string) *ClawtaAdapter {
 	if binary == "" {
-		binary = defaultCataBinary
+		binary = defaultClawtaBinary
 	}
 	if model == "" {
-		model = defaultCataModel
+		model = defaultClawtaModel
 	}
 	if provider == "" {
-		provider = defaultCataProvider
+		provider = defaultClawtaProvider
 	}
 	if workspace == "" {
 		workspace = filepath.Join(os.Getenv("HOME"), "agentguard-workspace")
 	}
-	return &CataAdapter{
+	return &ClawtaAdapter{
 		binary:    binary,
 		model:     model,
 		provider:  provider,
@@ -55,14 +55,14 @@ func NewCataAdapter(binary, model, provider, workspace string) *CataAdapter {
 }
 
 // Name returns the adapter identifier.
-func (a *CataAdapter) Name() string { return "cata" }
+func (a *ClawtaAdapter) Name() string { return "clawta" }
 
 // SetLearner enables automatic episodic memory storage for task outcomes.
-func (a *CataAdapter) SetLearner(l *learner.Learner) { a.learner = l }
+func (a *ClawtaAdapter) SetLearner(l *learner.Learner) { a.learner = l }
 
 // CanAccept returns true for code-gen, bugfix, config, and evolve task types
 // when DEEPSEEK_API_KEY is available in the environment.
-func (a *CataAdapter) CanAccept(task *Task) bool {
+func (a *ClawtaAdapter) CanAccept(task *Task) bool {
 	if os.Getenv("DEEPSEEK_API_KEY") == "" {
 		return false
 	}
@@ -74,11 +74,11 @@ func (a *CataAdapter) CanAccept(task *Task) bool {
 	}
 }
 
-// Dispatch runs Cata in an isolated git worktree to implement the task.
+// Dispatch runs Clawta in an isolated git worktree to implement the task.
 // On success the branch is pushed and a PR is opened. The worktree is removed
 // on return regardless of outcome.
-func (a *CataAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, cataTimeout)
+func (a *ClawtaAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, clawtaTimeout)
 	defer cancel()
 
 	result := &AdapterResult{
@@ -95,7 +95,7 @@ func (a *CataAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult,
 
 	// Create a git worktree for isolation so changes don't pollute the
 	// main working tree.
-	branchName := fmt.Sprintf("cata/%s", sanitizeBranch(task.ID))
+	branchName := fmt.Sprintf("clawta/%s", sanitizeBranch(task.ID))
 	worktreePath := filepath.Join(a.workspace, ".worktrees", branchName)
 
 	defaultBranch := detectDefaultBranch(repoPath)
@@ -119,7 +119,7 @@ func (a *CataAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult,
 		}
 	}
 
-	// Tell Cata to commit but NOT to push or open PRs — the adapter
+	// Tell Clawta to commit but NOT to push or open PRs — the adapter
 	// handles git plumbing after the agent finishes.
 	prompt += "\n\nAfter implementing, stage and commit your changes with a descriptive message. Do NOT push or open PRs."
 
@@ -128,7 +128,7 @@ func (a *CataAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult,
 		"--provider", a.provider,
 		"--model", a.model,
 		"--max-turns", "100",
-		"--timeout", fmt.Sprintf("%d", int(cataTimeout.Milliseconds())),
+		"--timeout", fmt.Sprintf("%d", int(clawtaTimeout.Milliseconds())),
 		prompt,
 	}
 
@@ -146,12 +146,12 @@ func (a *CataAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult,
 
 	if err != nil {
 		result.Status = "failed"
-		result.Error = fmt.Sprintf("cata exited: %v", err)
+		result.Error = fmt.Sprintf("clawta exited: %v", err)
 	} else {
 		result.Status = "completed"
 	}
 
-	// Adapter-side git plumbing: push branch and open PR if Cata produced commits.
+	// Adapter-side git plumbing: push branch and open PR if Clawta produced commits.
 	if result.Status == "completed" {
 		if hasNewCommits(worktreePath, "origin/"+defaultBranch) {
 			pushCmd := exec.CommandContext(ctx, "git", "push", "-u", "origin", branchName)
@@ -160,7 +160,7 @@ func (a *CataAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult,
 				result.Error = fmt.Sprintf("push failed: %s: %s", pushErr, string(pushOut))
 			} else {
 				prTitle := truncate(task.Prompt, 60)
-				prBody := fmt.Sprintf("Auto-generated by Cata via Octi Pulpo dispatch\n\nTask: %s\nAdapter: %s\nType: %s", task.ID, a.Name(), task.Type)
+				prBody := fmt.Sprintf("Auto-generated by Clawta via Octi Pulpo dispatch\n\nTask: %s\nAdapter: %s\nType: %s", task.ID, a.Name(), task.Type)
 				prCmd := exec.CommandContext(ctx, "gh", "pr", "create",
 					"--repo", task.Repo,
 					"--head", branchName,
