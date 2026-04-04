@@ -13,7 +13,7 @@ import (
 
 const (
 	defaultShellforge = "shellforge"
-	defaultModel      = "claude-haiku-4-5-20251001"
+	defaultModel      = "claude-3-haiku-20241022"
 	anthropicTimeout  = 5 * time.Minute
 )
 
@@ -31,7 +31,7 @@ func (a *AnthropicAdapter) SetLearner(l *learner.Learner) {
 
 // NewAnthropicAdapter creates an AnthropicAdapter. shellforge defaults to
 // "shellforge" (resolved from PATH) and model defaults to
-// "claude-haiku-4-5-20251001".
+// "claude-3-haiku-20241022".
 func NewAnthropicAdapter(shellforge, model string) *AnthropicAdapter {
 	if shellforge == "" {
 		shellforge = defaultShellforge

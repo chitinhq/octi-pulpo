@@ -18,7 +18,7 @@ type ModelTier struct {
 // CLI session (Max subscription) instead of burning API budget.
 var DefaultCascade = []ModelTier{
 	{Model: "deepseek-coder", CostPerMTok: 0.14, Provider: "deepseek"},
-	{Model: "claude-haiku-4-5-20251001", CostPerMTok: 0.80, Provider: "anthropic"},
+	{Model: "claude-3-haiku-20241022", CostPerMTok: 0.80, Provider: "anthropic"},
 	// Sonnet and Opus removed — escalate to human via GitHub issue instead.
 	// See: feedback_model_budget.md
 }

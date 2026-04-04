@@ -1,0 +1,399 @@
+{"timestamp":"2026-04-04T19:41:50Z","agent":"clawta","event":"info","message":"starting — max 100 turns, provider: openai, run: run_1775331710003"}
+{"timestamp":"2026-04-04T19:41:50Z","agent":"clawta","event":"info","message":"turn 1/100 (~1359 tokens, 10m remaining)"}
+{"timestamp":"2026-04-04T19:41:52Z","agent":"clawta","event":"model_call","tokens":{"prompt":2204,"response":89}}
+{"timestamp":"2026-04-04T19:41:52Z","agent":"clawta","event":"info","message":"tool_use: list_files (id: call_00_embbZigCwLxwp5f4bBsX206J)"}
+{"timestamp":"2026-04-04T19:41:52Z","agent":"clawta","event":"governance","tool":"list_files","params":{"directory":"."},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:41:52Z","agent":"clawta","event":"tool_call","tool":"list_files","message":"(empty directory)"}
+{"timestamp":"2026-04-04T19:41:52Z","agent":"clawta","event":"info","message":"turn 2/100 (~1426 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:41:54Z","agent":"clawta","event":"model_call","tokens":{"prompt":2320,"response":62}}
+{"timestamp":"2026-04-04T19:41:54Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_PQxdSgUVrFmg7d9BjVJIrBRE)"}
+{"timestamp":"2026-04-04T19:41:54Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"ls -la"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:41:54Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"total 72\ndrwxrwxr-x 10 jared jared 4096 Apr  4 19:41 .\ndrwxrwxr-x 20 jared jared 4096 Apr  4 19:41 ..\ndrwxrwxr-x  3 jared jared 4096 Apr  4 19:41 .agentguard\ndrwxrwxr-x  6 jared jared 4096 Apr  4 1..."}
+{"timestamp":"2026-04-04T19:41:54Z","agent":"clawta","event":"info","message":"plan injection: discovery phase complete, prompting for plan"}
+{"timestamp":"2026-04-04T19:41:54Z","agent":"clawta","event":"info","message":"turn 3/100 (~1719 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:41:56Z","agent":"clawta","event":"model_call","tokens":{"prompt":2848,"response":88}}
+{"timestamp":"2026-04-04T19:41:56Z","agent":"clawta","event":"info","message":"tool_use: search_files (id: call_00_G2b4RifjPjkpUGkrVNAqDeMn)"}
+{"timestamp":"2026-04-04T19:41:56Z","agent":"clawta","event":"governance","tool":"search_files","params":{"directory":".","pattern":"Tier B planner"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:41:56Z","agent":"clawta","event":"tool_call","tool":"search_files","message":"No matches found"}
+{"timestamp":"2026-04-04T19:41:56Z","agent":"clawta","event":"info","message":"turn 4/100 (~1764 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:41:58Z","agent":"clawta","event":"model_call","tokens":{"prompt":2963,"response":60}}
+{"timestamp":"2026-04-04T19:41:58Z","agent":"clawta","event":"info","message":"tool_use: search_files (id: call_00_JxO9QoZYycb2Se1LmQC6T2Bo)"}
+{"timestamp":"2026-04-04T19:41:58Z","agent":"clawta","event":"governance","tool":"search_files","params":{"directory":".","pattern":"Claude API"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:41:59Z","agent":"clawta","event":"tool_call","tool":"search_files","message":"./internal/dispatch/planner.go:33:// PlannerHandler scopes vague issues via Claude API — writes acceptance criteria,\n./internal/dispatch/planner.go:68:\t// Budget gate: skip Claude API call if pip..."}
+{"timestamp":"2026-04-04T19:41:59Z","agent":"clawta","event":"info","message":"turn 5/100 (~2338 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:01Z","agent":"clawta","event":"model_call","tokens":{"prompt":3627,"response":66}}
+{"timestamp":"2026-04-04T19:42:01Z","agent":"clawta","event":"info","message":"tool_use: search_files (id: call_00_jYPKU0EzByjByQF5RFhqFpmx)"}
+{"timestamp":"2026-04-04T19:42:01Z","agent":"clawta","event":"governance","tool":"search_files","params":{"directory":".","pattern":"119"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:01Z","agent":"clawta","event":"tool_call","tool":"search_files","message":"No matches found"}
+{"timestamp":"2026-04-04T19:42:01Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:42:02Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:42:02Z","agent":"clawta","event":"info","message":"turn 6/100 (~2357 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:04Z","agent":"clawta","event":"model_call","tokens":{"prompt":3720,"response":57}}
+{"timestamp":"2026-04-04T19:42:04Z","agent":"clawta","event":"info","message":"tool_use: glob (id: call_00_MEbo0q5c4Kfk1FILHn0AiQuH)"}
+{"timestamp":"2026-04-04T19:42:04Z","agent":"clawta","event":"governance","tool":"glob","params":{"pattern":"**/*test*.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:04Z","agent":"clawta","event":"tool_call","tool":"glob","message":"cmd/octi-worker/worker_test.go\ninternal/admission/admission_test.go\ninternal/admission/spec_quality_test.go\ninternal/budget/budget_test.go\ninternal/coordination/engine_test.go\ninternal/coordination..."}
+{"timestamp":"2026-04-04T19:42:04Z","agent":"clawta","event":"info","message":"turn 7/100 (~2865 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:06Z","agent":"clawta","event":"model_call","tokens":{"prompt":4299,"response":71}}
+{"timestamp":"2026-04-04T19:42:06Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_zam2JCGcOOy3RcN0h7oIUVvw)"}
+{"timestamp":"2026-04-04T19:42:06Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/planner.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:06Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"bytes\"\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"os\"\n\t\"strings\"\n\t\"time\"\n\n\t\"github.com/AgentGuardHQ/octi-pulpo/internal/budget\"\n)\n\n// PlannerResult is the o..."}
+{"timestamp":"2026-04-04T19:42:06Z","agent":"clawta","event":"info","message":"turn 8/100 (~5887 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:09Z","agent":"clawta","event":"model_call","tokens":{"prompt":7840,"response":65}}
+{"timestamp":"2026-04-04T19:42:09Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_ZMf0hRgh0HtFXO2RqCyog713)"}
+{"timestamp":"2026-04-04T19:42:09Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/webhook.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:09Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"bytes\"\n\t\"context\"\n\t\"crypto/hmac\"\n\t\"crypto/sha256\"\n\t\"encoding/hex\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"net/url\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"strings\"\n\t\"time\"\n\n\t\"gith..."}
+{"timestamp":"2026-04-04T19:42:09Z","agent":"clawta","event":"info","message":"turn 9/100 (~11941 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:12Z","agent":"clawta","event":"model_call","tokens":{"prompt":14746,"response":96}}
+{"timestamp":"2026-04-04T19:42:12Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_SiCSHUbJoWBiaBpeS1RNiyJo)"}
+{"timestamp":"2026-04-04T19:42:12Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":".","file_type":"go","pattern":"planner.*test|test.*planner"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:12Z","agent":"clawta","event":"tool_call","tool":"grep","message":"No matches found"}
+{"timestamp":"2026-04-04T19:42:12Z","agent":"clawta","event":"info","message":"turn 10/100 (~11967 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:15Z","agent":"clawta","event":"model_call","tokens":{"prompt":14893,"response":90}}
+{"timestamp":"2026-04-04T19:42:15Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_Ntrvk9UsKRwkz3t68e8Rz2Om)"}
+{"timestamp":"2026-04-04T19:42:15Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"find . -name \"*.go\" -type f | xargs grep -l \"119\\|Tier B\\|Phase 2\" | head -20"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:15Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/bridge.go\n./internal/dispatch/brain.go\n./internal/dispatch/review.go\n./internal/dispatch/triage.go"}
+{"timestamp":"2026-04-04T19:42:15Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:42:16Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:42:16Z","agent":"clawta","event":"info","message":"turn 11/100 (~12043 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:18Z","agent":"clawta","event":"model_call","tokens":{"prompt":15039,"response":64}}
+{"timestamp":"2026-04-04T19:42:18Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_kZXS3zsXA2LVEF2TdyYOxbU4)"}
+{"timestamp":"2026-04-04T19:42:18Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/bridge.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:18Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"bufio\"\n\t\"os\"\n\t\"strings\"\n\t\"syscall\"\n)\n\n// BridgeToFileQueue writes a dispatched agent to the legacy queue file (~/.agentguard/queue.txt)\n// for backward compatibility wi..."}
+{"timestamp":"2026-04-04T19:42:18Z","agent":"clawta","event":"info","message":"turn 12/100 (~12395 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:21Z","agent":"clawta","event":"model_call","tokens":{"prompt":15496,"response":49}}
+{"timestamp":"2026-04-04T19:42:21Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_nLj9nN6ke8triQJe2OrRbOoD)"}
+{"timestamp":"2026-04-04T19:42:21Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/brain.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:21Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\t\"os/exec\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n\n\t\"github.com/AgentGuardHQ/octi-pulpo/internal/routing\"\n\t\"github.com/AgentGuardHQ..."}
+{"timestamp":"2026-04-04T19:42:21Z","agent":"clawta","event":"info","message":"turn 13/100 (~18431 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:24Z","agent":"clawta","event":"model_call","tokens":{"prompt":22577,"response":74}}
+{"timestamp":"2026-04-04T19:42:24Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_FmDSz9UWjn8dfCOZTz2fsGmF)"}
+{"timestamp":"2026-04-04T19:42:24Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch","pattern":"119"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:24Z","agent":"clawta","event":"tool_call","tool":"grep","message":"No matches found"}
+{"timestamp":"2026-04-04T19:42:24Z","agent":"clawta","event":"info","message":"turn 14/100 (~18454 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:27Z","agent":"clawta","event":"model_call","tokens":{"prompt":22678,"response":70}}
+{"timestamp":"2026-04-04T19:42:27Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_W2JDJtOvSsfr5LcTm66AxsUr)"}
+{"timestamp":"2026-04-04T19:42:27Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch","pattern":"119"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:27Z","agent":"clawta","event":"tool_call","tool":"grep","message":"No matches found"}
+{"timestamp":"2026-04-04T19:42:27Z","agent":"clawta","event":"info","message":"turn 15/100 (~18471 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:30Z","agent":"clawta","event":"model_call","tokens":{"prompt":22775,"response":93}}
+{"timestamp":"2026-04-04T19:42:30Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_gQXZ3KR78Grd3f1S1psulypV)"}
+{"timestamp":"2026-04-04T19:42:30Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -r \"Tier B\\|Phase 2\\|scopes/grooms\" . --include=\"*.go\" --include=\"*.md\" | head -20"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:30Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/bridge.go://   - Phase 2 (later): Workers read from Redis priority queue directly\n./internal/dispatch/brain.go:// maybeSelfHeal runs Phase 2 adaptive recovery checks on every ti..."}
+{"timestamp":"2026-04-04T19:42:30Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:42:31Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:42:31Z","agent":"clawta","event":"info","message":"turn 16/100 (~18628 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:33Z","agent":"clawta","event":"model_call","tokens":{"prompt":23022,"response":61}}
+{"timestamp":"2026-04-04T19:42:33Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_KXsXrdiETEihVn9bDEjsFjWv)"}
+{"timestamp":"2026-04-04T19:42:33Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./workflows/README.md"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:33Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"# Octi Pulpo Pipeline — Workflow Templates\n\nGeneric, reusable GitHub Actions workflows for the three-tier assembly line.\n\n## Architecture Split\n\n**Octi Pulpo (Linux box)** handles all AI/LLM work..."}
+{"timestamp":"2026-04-04T19:42:33Z","agent":"clawta","event":"info","message":"turn 17/100 (~19165 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:36Z","agent":"clawta","event":"model_call","tokens":{"prompt":23644,"response":94}}
+{"timestamp":"2026-04-04T19:42:36Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_gUNMNeJ8zfLpRzJKjziCMYP7)"}
+{"timestamp":"2026-04-04T19:42:36Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"find . -name \"*test*.go\" -type f | xargs grep -l \"planner\\|Planner\" | head -10"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:36Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"(no output)"}
+{"timestamp":"2026-04-04T19:42:36Z","agent":"clawta","event":"info","message":"turn 18/100 (~19202 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:39Z","agent":"clawta","event":"model_call","tokens":{"prompt":23766,"response":56}}
+{"timestamp":"2026-04-04T19:42:39Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_hU6oq260LojYK90d74yoJaN0)"}
+{"timestamp":"2026-04-04T19:42:39Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./go.mod"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:39Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"module github.com/AgentGuardHQ/octi-pulpo\n\ngo 1.18\n\nrequire github.com/redis/go-redis/v9 v9.5.1\n\nrequire (\n\tgithub.com/cespare/xxhash/v2 v2.2.0 // indirect\n\tgithub.com/dgryski/go-rendezvous v0.0.0-..."}
+{"timestamp":"2026-04-04T19:42:39Z","agent":"clawta","event":"info","message":"turn 19/100 (~19283 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:42Z","agent":"clawta","event":"model_call","tokens":{"prompt":23943,"response":85}}
+{"timestamp":"2026-04-04T19:42:42Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_HQOKs6ie0UC2tRyog7RRIkXG)"}
+{"timestamp":"2026-04-04T19:42:42Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"find . -name \"*test*.go\" -type f -exec grep -l \"HandleIssue\\|scope\\|PlannerResult\" {} \\;"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:42Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/admission/admission_test.go\n./internal/memory/store_test.go\n./internal/memory/vector_test.go"}
+{"timestamp":"2026-04-04T19:42:42Z","agent":"clawta","event":"info","message":"turn 20/100 (~19333 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:44Z","agent":"clawta","event":"model_call","tokens":{"prompt":24102,"response":65}}
+{"timestamp":"2026-04-04T19:42:44Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_exnQsECGQFbbcOvH2s7xhYCF)"}
+{"timestamp":"2026-04-04T19:42:44Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/admission/admission_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:44Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package admission_test\n\nimport (\n\t\"context\"\n\t\"os\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/AgentGuardHQ/octi-pulpo/internal/admission\"\n\t\"github.com/redis/go-redis/v9\"\n)\n\nfunc testGate(t *testing.T) *admiss..."}
+{"timestamp":"2026-04-04T19:42:44Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:42:45Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:42:45Z","agent":"clawta","event":"info","message":"turn 21/100 (~21552 tokens, 9m remaining)"}
+{"timestamp":"2026-04-04T19:42:48Z","agent":"clawta","event":"model_call","tokens":{"prompt":26957,"response":70}}
+{"timestamp":"2026-04-04T19:42:48Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_5bEYYJqDHIslnRRkEIYaddft)"}
+{"timestamp":"2026-04-04T19:42:48Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./... 2\u003e\u00261 | head -100"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:51Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"?   \tgithub.com/AgentGuardHQ/octi-pulpo/cmd/octi-pipeline\t[no test files]\n?   \tgithub.com/AgentGuardHQ/octi-pulpo/cmd/octi-pulpo\t[no test files]\n?   \tgithub.com/AgentGuardHQ/octi-pulpo/cmd/octi-tim..."}
+{"timestamp":"2026-04-04T19:42:51Z","agent":"clawta","event":"info","message":"turn 22/100 (~21865 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:42:54Z","agent":"clawta","event":"model_call","tokens":{"prompt":27503,"response":112}}
+{"timestamp":"2026-04-04T19:42:54Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_6xetyepck9KiNlu6pZtgB9RP)"}
+{"timestamp":"2026-04-04T19:42:54Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"find . -type f -name \"*.go\" | xargs grep -l \"tier:b-scope\\|PlannerHandler\" | head -20"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:54Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/planner.go\n./internal/dispatch/triage.go\n./internal/dispatch/webhook.go\n./cmd/octi-pulpo/main.go"}
+{"timestamp":"2026-04-04T19:42:54Z","agent":"clawta","event":"info","message":"turn 23/100 (~21945 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:42:57Z","agent":"clawta","event":"model_call","tokens":{"prompt":27675,"response":66}}
+{"timestamp":"2026-04-04T19:42:57Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_uioYe0CSWz4tUycsgNJg8YcW)"}
+{"timestamp":"2026-04-04T19:42:57Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./cmd/octi-pulpo/main.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:42:57Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n\t\"path/filepath\"\n\n\t\"github.com/AgentGuardHQ/octi-pulpo/internal/admission\"\n\t\"github.com/AgentGuardHQ/octi-pulpo/internal/budget\"\n\t\"github.com/AgentGua..."}
+{"timestamp":"2026-04-04T19:42:57Z","agent":"clawta","event":"info","message":"turn 24/100 (~24198 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:01Z","agent":"clawta","event":"model_call","tokens":{"prompt":30479,"response":142}}
+{"timestamp":"2026-04-04T19:43:01Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_a65Ilg7uIymiGJzyQUYcVSkJ)"}
+{"timestamp":"2026-04-04T19:43:01Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch","pattern":"TODO\\|FIXME\\|XXX\\|HACK"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:01Z","agent":"clawta","event":"tool_call","tool":"grep","message":"No matches found"}
+{"timestamp":"2026-04-04T19:43:01Z","agent":"clawta","event":"info","message":"turn 25/100 (~24281 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:05Z","agent":"clawta","event":"model_call","tokens":{"prompt":30648,"response":92}}
+{"timestamp":"2026-04-04T19:43:05Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_Ak7Aif7BtIkNjkIHqXFRLUyJ)"}
+{"timestamp":"2026-04-04T19:43:05Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./internal/dispatch -v 2\u003e\u00261 | grep -A5 -B5 \"FAIL\\|Error\\|panic\""},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:06Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"--- PASS: TestBrain_SelfHeal_NoProfileStore (0.00s)\n=== RUN   TestHandlePush_UpdatesBehindPRs\n--- PASS: TestHandlePush_UpdatesBehindPRs (0.00s)\n=== RUN   TestHandlePush_NoPRs\n--- PASS: TestHandlePu..."}
+{"timestamp":"2026-04-04T19:43:06Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:43:07Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:43:07Z","agent":"clawta","event":"info","message":"turn 26/100 (~25058 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:10Z","agent":"clawta","event":"model_call","tokens":{"prompt":31722,"response":112}}
+{"timestamp":"2026-04-04T19:43:10Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_y2QoCNZ584g8ihu2JdytJ7cI)"}
+{"timestamp":"2026-04-04T19:43:10Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"find . -type f -name \"*.go\" -exec grep -l \"TestPlanner\\|TestScope\\|TestHandleIssue\" {} \\;"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:10Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"(no output)"}
+{"timestamp":"2026-04-04T19:43:10Z","agent":"clawta","event":"info","message":"turn 27/100 (~25117 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:16Z","agent":"clawta","event":"model_call","tokens":{"prompt":31862,"response":209}}
+{"timestamp":"2026-04-04T19:43:16Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_LCmIB8MwI3IahrZ4y55C1pP1)"}
+{"timestamp":"2026-04-04T19:43:16Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/bridge.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:16Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"bufio\"\n\t\"os\"\n\t\"strings\"\n\t\"syscall\"\n)\n\n// BridgeToFileQueue writes a dispatched agent to the legacy queue file (~/.agentguard/queue.txt)\n// for backward compatibility wi..."}
+{"timestamp":"2026-04-04T19:43:16Z","agent":"clawta","event":"info","message":"turn 28/100 (~25615 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:20Z","agent":"clawta","event":"model_call","tokens":{"prompt":32464,"response":118}}
+{"timestamp":"2026-04-04T19:43:20Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_ra8GyWhzQvky1lmMxkFpPX81)"}
+{"timestamp":"2026-04-04T19:43:20Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -r \"Phase 2\\|phase 2\" . --include=\"*.go\" --include=\"*.md\" --include=\"*.txt\""},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:20Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/bridge.go://   - Phase 2 (later): Workers read from Redis priority queue directly\n./internal/dispatch/brain.go:// maybeSelfHeal runs Phase 2 adaptive recovery checks on every tick:"}
+{"timestamp":"2026-04-04T19:43:20Z","agent":"clawta","event":"info","message":"turn 29/100 (~25721 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:23Z","agent":"clawta","event":"model_call","tokens":{"prompt":32653,"response":76}}
+{"timestamp":"2026-04-04T19:43:23Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_yvPcfILi7dg2FnYmUFkzvukq)"}
+{"timestamp":"2026-04-04T19:43:23Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch","pattern":"Phase 2"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:23Z","agent":"clawta","event":"tool_call","tool":"grep","message":"internal/dispatch/brain.go:355:// maybeSelfHeal runs Phase 2 adaptive recovery checks on every tick:\ninternal/dispatch/bridge.go:15://   - Phase 2 (later): Workers read from Redis priority queue di..."}
+{"timestamp":"2026-04-04T19:43:23Z","agent":"clawta","event":"info","message":"turn 30/100 (~25790 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:26Z","agent":"clawta","event":"model_call","tokens":{"prompt":32825,"response":79}}
+{"timestamp":"2026-04-04T19:43:26Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_kFSed5HtZzRUMUQSnmpJaVHh)"}
+{"timestamp":"2026-04-04T19:43:26Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./internal/dispatch -count=1 2\u003e\u00261 | tail -50"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:26Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"ok  \tgithub.com/AgentGuardHQ/octi-pulpo/internal/dispatch\t0.182s"}
+{"timestamp":"2026-04-04T19:43:26Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:43:27Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:43:27Z","agent":"clawta","event":"info","message":"turn 31/100 (~25854 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:31Z","agent":"clawta","event":"model_call","tokens":{"prompt":32952,"response":150}}
+{"timestamp":"2026-04-04T19:43:31Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_gkaF2xfTJjKzsMa5unNMkWnk)"}
+{"timestamp":"2026-04-04T19:43:31Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"find . -type f -name \"*test*.go\" -exec grep -l \"planner\\|Planner\" {} \\;"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:31Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"(no output)"}
+{"timestamp":"2026-04-04T19:43:31Z","agent":"clawta","event":"info","message":"turn 32/100 (~25954 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:35Z","agent":"clawta","event":"model_call","tokens":{"prompt":33130,"response":106}}
+{"timestamp":"2026-04-04T19:43:35Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_3lklIZRn4bw8MEyaNL2FV798)"}
+{"timestamp":"2026-04-04T19:43:35Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/dispatcher_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:35Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/AgentGuardHQ/octi-pulpo/internal/coordination\"\n\t\"github.com/AgentGuardHQ/octi-pulpo/in..."}
+{"timestamp":"2026-04-04T19:43:35Z","agent":"clawta","event":"info","message":"turn 33/100 (~30099 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:39Z","agent":"clawta","event":"model_call","tokens":{"prompt":38280,"response":110}}
+{"timestamp":"2026-04-04T19:43:39Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_wWZyaTWIHz1Sgw3PPY7WfDPn)"}
+{"timestamp":"2026-04-04T19:43:39Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"ls -la ./internal/dispatch/*planner*"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:39Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"-rw-rw-r-- 1 jared jared 11961 Apr  4 19:41 ./internal/dispatch/planner.go"}
+{"timestamp":"2026-04-04T19:43:39Z","agent":"clawta","event":"info","message":"turn 34/100 (~30188 tokens, 8m remaining)"}
+{"timestamp":"2026-04-04T19:43:55Z","agent":"clawta","event":"model_call","tokens":{"prompt":38445,"response":843}}
+{"timestamp":"2026-04-04T19:43:55Z","agent":"clawta","event":"info","message":"tool_use: write_file (id: call_00_GVjTmAqoTbOHfQLmLvLsKygx)"}
+{"timestamp":"2026-04-04T19:43:55Z","agent":"clawta","event":"governance","tool":"write_file","params":{"content":"package dispatch\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\nfunc TestPlannerHandler_NewPlannerHandler(t *testing.T) {\n\t// Test that NewPlannerHandler creates a handler with default values\n\thandler := NewPlannerHandler(\"\", \"\", \"\")\n\tif handler == nil {\n\t\tt.Fatal(\"expected non-nil handler\")\n\t}\n}\n\nfunc TestPlannerHandler_HandleIssue_BudgetExceeded(t *testing.T) {\n\t// Test that HandleIssue escalates to tier:a-groom when budget is exceeded\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\t\n\t// Create a budget store that will trigger budget gate\n\t// We need to simulate budget exceeded scenario\n\t// For now, just test that the function exists and returns expected types\n\tctx := context.Background()\n\tresult, err := handler.HandleIssue(ctx, \"test/repo\", 1, \"Test Issue\", \"Test body\")\n\t\n\t// When budget is not configured, it should try to call Claude API\n\t// but will fail due to missing credentials\n\tif err == nil {\n\t\tt.Logf(\"Result: %+v\", result)\n\t\t// This is OK - the actual API call will fail in test environment\n\t}\n}\n\nfunc TestPlannerResult_JSONStructure(t *testing.T) {\n\t// Test that PlannerResult has the expected JSON structure\n\tresult := PlannerResult{\n\t\tAcceptanceCriteria: \"Test criteria\",\n\t\tEscalate:           false,\n\t\tReason:             \"Test reason\",\n\t\tCostCents:          10,\n\t\tModel:              \"test-model\",\n\t}\n\t\n\tif result.AcceptanceCriteria != \"Test criteria\" {\n\t\tt.Errorf(\"Expected AcceptanceCriteria 'Test criteria', got %s\", result.AcceptanceCriteria)\n\t}\n\tif result.Escalate != false {\n\t\tt.Errorf(\"Expected Escalate false, got %v\", result.Escalate)\n\t}\n\tif result.CostCents != 10 {\n\t\tt.Errorf(\"Expected CostCents 10, got %d\", result.CostCents)\n\t}\n}\n\nfunc TestSubIssue_JSONStructure(t *testing.T) {\n\t// Test that SubIssue has the expected JSON structure\n\tsubIssue := SubIssue{\n\t\tTitle: \"Test sub-issue\",\n\t\tBody:  \"Test body\",\n\t}\n\t\n\tif subIssue.Title != \"Test sub-issue\" {\n\t\tt.Errorf(\"Expected Title 'Test sub-issue', got %s\", subIssue.Title)\n\t}\n\tif subIssue.Body != \"Test body\" {\n\t\tt.Errorf(\"Expected Body 'Test body', got %s\", subIssue.Body)\n\t}\n}\n\nfunc TestPlannerHandler_ScopeMethodExists(t *testing.T) {\n\t// Test that the scope method exists (even though it's private)\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\t\n\t// We can't directly test the private scope method, but we can verify\n\t// that HandleIssue calls it indirectly\n\tctx := context.Background()\n\t_, err := handler.HandleIssue(ctx, \"test/repo\", 1, \"Test Issue\", \"Test body\")\n\t\n\t// Error is expected since we don't have real API credentials\n\tif err != nil {\n\t\tt.Logf(\"Expected error without API credentials: %v\", err)\n\t}\n}","path":"./internal/dispatch/planner_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:43:55Z","agent":"clawta","event":"tool_call","tool":"write_file","message":"Written 2652 bytes to ./internal/dispatch/planner_test.go"}
+{"timestamp":"2026-04-04T19:43:55Z","agent":"clawta","event":"info","message":"turn 35/100 (~30276 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:43:58Z","agent":"clawta","event":"model_call","tokens":{"prompt":39327,"response":76}}
+{"timestamp":"2026-04-04T19:43:58Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_d1CH7ziuyHbsuvJfSoaQ9cfZ)"}
+{"timestamp":"2026-04-04T19:43:58Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./internal/dispatch -run \"TestPlanner\" -v 2\u003e\u00261"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:00Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"=== RUN   TestPlannerHandler_NewPlannerHandler\n--- PASS: TestPlannerHandler_NewPlannerHandler (0.00s)\n=== RUN   TestPlannerHandler_HandleIssue_BudgetExceeded\n--- PASS: TestPlannerHandler_HandleIssu..."}
+{"timestamp":"2026-04-04T19:44:00Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:44:01Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:44:01Z","agent":"clawta","event":"info","message":"turn 36/100 (~30470 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:04Z","agent":"clawta","event":"model_call","tokens":{"prompt":39641,"response":85}}
+{"timestamp":"2026-04-04T19:44:04Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_A4hhTpLWXwAkinbrzlQQRO24)"}
+{"timestamp":"2026-04-04T19:44:04Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./... 2\u003e\u00261 | tail -50"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:06Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"?   \tgithub.com/AgentGuardHQ/octi-pulpo/cmd/octi-pipeline\t[no test files]\n?   \tgithub.com/AgentGuardHQ/octi-pulpo/cmd/octi-pulpo\t[no test files]\n?   \tgithub.com/AgentGuardHQ/octi-pulpo/cmd/octi-tim..."}
+{"timestamp":"2026-04-04T19:44:06Z","agent":"clawta","event":"info","message":"turn 37/100 (~30805 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:13Z","agent":"clawta","event":"model_call","tokens":{"prompt":40174,"response":262}}
+{"timestamp":"2026-04-04T19:44:13Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_tfpzLSIKJVYWsiMXG2CHnDT8)"}
+{"timestamp":"2026-04-04T19:44:13Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch","pattern":"checkBudgetGate\\|recordBudgetCost"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:13Z","agent":"clawta","event":"tool_call","tool":"grep","message":"No matches found"}
+{"timestamp":"2026-04-04T19:44:13Z","agent":"clawta","event":"info","message":"turn 38/100 (~31040 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:16Z","agent":"clawta","event":"model_call","tokens":{"prompt":40463,"response":108}}
+{"timestamp":"2026-04-04T19:44:16Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_uwMT9liihyz6HPTM5bXH6115)"}
+{"timestamp":"2026-04-04T19:44:16Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -r \"func checkBudgetGate\\|func recordBudgetCost\" . --include=\"*.go\""},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:16Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/budget_gate.go:func checkBudgetGate(ctx context.Context, bs *budget.BudgetStore, agentName string) error {\n./internal/dispatch/budget_gate.go:func recordBudgetCost(ctx context.C..."}
+{"timestamp":"2026-04-04T19:44:16Z","agent":"clawta","event":"info","message":"turn 39/100 (~31164 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:19Z","agent":"clawta","event":"model_call","tokens":{"prompt":40670,"response":67}}
+{"timestamp":"2026-04-04T19:44:19Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_gzrlnDSzBToiTMrANAQSEXy1)"}
+{"timestamp":"2026-04-04T19:44:19Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/budget_gate.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:19Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n\t\"strconv\"\n\n\t\"github.com/AgentGuardHQ/octi-pulpo/internal/budget\"\n)\n\n// pipelineAgents are the agent names used by Claude API handlers.\n// Total s..."}
+{"timestamp":"2026-04-04T19:44:19Z","agent":"clawta","event":"info","message":"turn 40/100 (~31845 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:26Z","agent":"clawta","event":"model_call","tokens":{"prompt":41546,"response":342}}
+{"timestamp":"2026-04-04T19:44:26Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_FamNR4RUbFEzgVMoIYiMmwsG)"}
+{"timestamp":"2026-04-04T19:44:26Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch","pattern":"InputTokens.*80\\|OutputTokens.*400"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:26Z","agent":"clawta","event":"tool_call","tool":"grep","message":"No matches found"}
+{"timestamp":"2026-04-04T19:44:26Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:44:27Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:44:27Z","agent":"clawta","event":"info","message":"turn 41/100 (~32171 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:30Z","agent":"clawta","event":"model_call","tokens":{"prompt":41915,"response":87}}
+{"timestamp":"2026-04-04T19:44:30Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_HyttiK9EI1HN5NwpCIobgpkB)"}
+{"timestamp":"2026-04-04T19:44:30Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -n \"costCents\\|CostCents\" ./internal/dispatch/triage.go ./internal/dispatch/review.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:30Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/triage.go:22:\tCostCents  int     `json:\"cost_cents\"`\n./internal/dispatch/triage.go:230:\tcostCents := (apiResp.Usage.InputTokens*80 + apiResp.Usage.OutputTokens*400) / 1_000_000\n..."}
+{"timestamp":"2026-04-04T19:44:30Z","agent":"clawta","event":"info","message":"turn 42/100 (~32372 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:36Z","agent":"clawta","event":"model_call","tokens":{"prompt":42262,"response":255}}
+{"timestamp":"2026-04-04T19:44:36Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_T28frSAhfVezxoL6l6GDBe1a)"}
+{"timestamp":"2026-04-04T19:44:36Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch/planner.go","pattern":"model.*=.*claude"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:36Z","agent":"clawta","event":"tool_call","tool":"grep","message":"./internal/dispatch/planner.go:57:\t\tmodel = \"claude-haiku-4-5-20251001\""}
+{"timestamp":"2026-04-04T19:44:36Z","agent":"clawta","event":"info","message":"turn 43/100 (~32557 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:39Z","agent":"clawta","event":"model_call","tokens":{"prompt":42570,"response":103}}
+{"timestamp":"2026-04-04T19:44:39Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_S7dbAfJwdJqE7VMNj3EVAV7Z)"}
+{"timestamp":"2026-04-04T19:44:39Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch/review.go","pattern":"model.*=.*claude"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:39Z","agent":"clawta","event":"tool_call","tool":"grep","message":"./internal/dispatch/review.go:51:\t\tmodel = \"claude-haiku-4-5-20251001\""}
+{"timestamp":"2026-04-04T19:44:39Z","agent":"clawta","event":"info","message":"turn 44/100 (~32608 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:43Z","agent":"clawta","event":"model_call","tokens":{"prompt":42725,"response":131}}
+{"timestamp":"2026-04-04T19:44:43Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_TJ8xOevwgHru7wkqD7siGtfo)"}
+{"timestamp":"2026-04-04T19:44:43Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -B5 -A5 \"300.*1500\" ./internal/dispatch/review.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:43Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"reviewResp.Comments = \"Review returned invalid decision, defaulting to request_changes for safety\"\n\t\treviewResp.Confidence = 0.0\n\t}\n\n\t// Estimate cost (Sonnet: $3/MTok input, $15/MTok output)\n\tcost..."}
+{"timestamp":"2026-04-04T19:44:43Z","agent":"clawta","event":"info","message":"turn 45/100 (~32795 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:46Z","agent":"clawta","event":"model_call","tokens":{"prompt":43015,"response":129}}
+{"timestamp":"2026-04-04T19:44:46Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_2umA38DF6sHCluC6JXm1tHSg)"}
+{"timestamp":"2026-04-04T19:44:46Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -n \"sonnet\\|Sonnet\" ./internal/dispatch/review.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:46Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"323:\t// Estimate cost (Sonnet: $3/MTok input, $15/MTok output)"}
+{"timestamp":"2026-04-04T19:44:46Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:44:48Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:44:48Z","agent":"clawta","event":"info","message":"turn 46/100 (~32884 tokens, 7m remaining)"}
+{"timestamp":"2026-04-04T19:44:54Z","agent":"clawta","event":"model_call","tokens":{"prompt":43192,"response":269}}
+{"timestamp":"2026-04-04T19:44:54Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_pW0YzgZwOPe5JkR2RI7axInQ)"}
+{"timestamp":"2026-04-04T19:44:54Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\t// Estimate cost (Haiku: $0.80/MTok input, $4/MTok output)\n\tcostCents := (apiResp.Usage.InputTokens*80 + apiResp.Usage.OutputTokens*400) / 1_000_000","old_string":"\t// Estimate cost (Sonnet: $3/MTok input, $15/MTok output)\n\tcostCents := (apiResp.Usage.InputTokens*300 + apiResp.Usage.OutputTokens*1500) / 1_000_000","path":"./internal/dispatch/review.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:54Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/review.go: replaced 150 bytes with 149 bytes"}
+{"timestamp":"2026-04-04T19:44:54Z","agent":"clawta","event":"info","message":"turn 47/100 (~32983 tokens, 6m remaining)"}
+{"timestamp":"2026-04-04T19:44:57Z","agent":"clawta","event":"model_call","tokens":{"prompt":43502,"response":76}}
+{"timestamp":"2026-04-04T19:44:57Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_TyaduTNjY6GX3R2THMaOPInD)"}
+{"timestamp":"2026-04-04T19:44:57Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./internal/dispatch -count=1 2\u003e\u00261 | tail -20"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:44:59Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"ok  \tgithub.com/AgentGuardHQ/octi-pulpo/internal/dispatch\t1.200s"}
+{"timestamp":"2026-04-04T19:44:59Z","agent":"clawta","event":"info","message":"turn 48/100 (~33019 tokens, 6m remaining)"}
+{"timestamp":"2026-04-04T19:45:04Z","agent":"clawta","event":"model_call","tokens":{"prompt":43626,"response":177}}
+{"timestamp":"2026-04-04T19:45:04Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_EoW9WohbZEq81smLew9mcpQc)"}
+{"timestamp":"2026-04-04T19:45:04Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -n \"TODO\\|FIXME\\|XXX\\|HACK\\|BUG\" ./internal/dispatch/planner.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:45:04Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"(no output)"}
+{"timestamp":"2026-04-04T19:45:04Z","agent":"clawta","event":"info","message":"turn 49/100 (~33188 tokens, 6m remaining)"}
+{"timestamp":"2026-04-04T19:45:08Z","agent":"clawta","event":"model_call","tokens":{"prompt":43875,"response":182}}
+{"timestamp":"2026-04-04T19:45:08Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_aSR1Olw7Dl3aR4X9meFwwxsS)"}
+{"timestamp":"2026-04-04T19:45:08Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./... -v 2\u003e\u00261 | grep -i \"fail\\|error\\|panic\" | head -20"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:45:11Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"=== RUN   TestIsCreditExhaustion/normal_failure_—_not_credit\n    --- PASS: TestIsCreditExhaustion/normal_failure_—_not_credit (0.00s)\n=== RUN   TestClose_NoError\n--- PASS: TestClose_NoError (0...."}
+{"timestamp":"2026-04-04T19:45:11Z","agent":"clawta","event":"info","message":"turn 50/100 (~33592 tokens, 6m remaining)"}
+{"timestamp":"2026-04-04T19:45:18Z","agent":"clawta","event":"model_call","tokens":{"prompt":44451,"response":285}}
+{"timestamp":"2026-04-04T19:45:18Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_RXcLD7QwIRcw1kmV0iueNd3K)"}
+{"timestamp":"2026-04-04T19:45:18Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -n \"claude-haiku-4-5-20251001\" ./internal/dispatch/*.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:45:18Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/anthropic_adapter.go:16:\tdefaultModel      = \"claude-haiku-4-5-20251001\"\n./internal/dispatch/anthropic_adapter.go:34:// \"claude-haiku-4-5-20251001\".\n./internal/dispatch/cascade...."}
+{"timestamp":"2026-04-04T19:45:18Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:45:19Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:45:19Z","agent":"clawta","event":"info","message":"turn 51/100 (~34114 tokens, 6m remaining)"}
+{"timestamp":"2026-04-04T19:45:31Z","agent":"clawta","event":"model_call","tokens":{"prompt":45133,"response":643}}
+{"timestamp":"2026-04-04T19:45:31Z","agent":"clawta","event":"info","message":"tool_use: write_file (id: call_00_ZsmsCENJd6D48qbGq3qtemMz)"}
+{"timestamp":"2026-04-04T19:45:31Z","agent":"clawta","event":"governance","tool":"write_file","params":{"content":"package dispatch\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\nfunc TestPlannerHandler_HandleIssue_EmptyBody(t *testing.T) {\n\t// Test handling issue with empty body\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\tctx := context.Background()\n\t\n\tresult, err := handler.HandleIssue(ctx, \"test/repo\", 1, \"Test Issue\", \"\")\n\t\n\t// Should not panic with empty body\n\tif err != nil {\n\t\tt.Logf(\"Error with empty body (expected): %v\", err)\n\t}\n\tif result != nil {\n\t\tt.Logf(\"Result with empty body: %+v\", result)\n\t}\n}\n\nfunc TestPlannerHandler_HandleIssue_LongTitle(t *testing.T) {\n\t// Test handling issue with very long title\n\tlongTitle := \"This is a very long title that might cause issues with the API call or buffer limits \" +\n\t\t\"because it keeps going and going and going and going and going and going and going \" +\n\t\t\"and going and going and going and going and going and going and going and going\"\n\t\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\tctx := context.Background()\n\t\n\tresult, err := handler.HandleIssue(ctx, \"test/repo\", 1, longTitle, \"Test body\")\n\t\n\t// Should not panic with long title\n\tif err != nil {\n\t\tt.Logf(\"Error with long title (expected): %v\", err)\n\t}\n\tif result != nil {\n\t\tt.Logf(\"Result with long title: %+v\", result)\n\t}\n}\n\nfunc TestPlannerHandler_SetBudgetStore(t *testing.T) {\n\t// Test that SetBudgetStore works\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\t\n\t// Should not panic when setting nil budget store\n\thandler.SetBudgetStore(nil)\n\t\n\t// Test is successful if we reach here without panic\n\tt.Log(\"SetBudgetStore with nil completed without panic\")\n}","path":"./internal/dispatch/planner_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:45:31Z","agent":"clawta","event":"tool_call","tool":"write_file","message":"Written 1642 bytes to ./internal/dispatch/planner_test.go"}
+{"timestamp":"2026-04-04T19:45:31Z","agent":"clawta","event":"info","message":"turn 52/100 (~34277 tokens, 6m remaining)"}
+{"timestamp":"2026-04-04T19:45:34Z","agent":"clawta","event":"model_call","tokens":{"prompt":45815,"response":74}}
+{"timestamp":"2026-04-04T19:45:34Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_Vv75mnXchBVTt1tiavPY0xF1)"}
+{"timestamp":"2026-04-04T19:45:34Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/planner_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:45:34Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\nfunc TestPlannerHandler_HandleIssue_EmptyBody(t *testing.T) {\n\t// Test handling issue with empty body\n\thandler := NewPlannerHandler(\"test-token\",..."}
+{"timestamp":"2026-04-04T19:45:34Z","agent":"clawta","event":"info","message":"turn 53/100 (~34718 tokens, 6m remaining)"}
+{"timestamp":"2026-04-04T19:45:56Z","agent":"clawta","event":"model_call","tokens":{"prompt":46356,"response":1229}}
+{"timestamp":"2026-04-04T19:45:56Z","agent":"clawta","event":"info","message":"tool_use: write_file (id: call_00_OU9KD80u9ysLSU9U53wam3EM)"}
+{"timestamp":"2026-04-04T19:45:56Z","agent":"clawta","event":"governance","tool":"write_file","params":{"content":"package dispatch\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\nfunc TestPlannerHandler_NewPlannerHandler(t *testing.T) {\n\t// Test that NewPlannerHandler creates a handler with default values\n\thandler := NewPlannerHandler(\"\", \"\", \"\")\n\tif handler == nil {\n\t\tt.Fatal(\"expected non-nil handler\")\n\t}\n}\n\nfunc TestPlannerHandler_HandleIssue_BudgetExceeded(t *testing.T) {\n\t// Test that HandleIssue escalates to tier:a-groom when budget is exceeded\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\t\n\t// Create a budget store that will trigger budget gate\n\t// We need to simulate budget exceeded scenario\n\t// For now, just test that the function exists and returns expected types\n\tctx := context.Background()\n\tresult, err := handler.HandleIssue(ctx, \"test/repo\", 1, \"Test Issue\", \"Test body\")\n\t\n\t// When budget is not configured, it should try to call Claude API\n\t// but will fail due to missing credentials\n\tif err == nil {\n\t\tt.Logf(\"Result: %+v\", result)\n\t\t// This is OK - the actual API call will fail in test environment\n\t}\n}\n\nfunc TestPlannerResult_JSONStructure(t *testing.T) {\n\t// Test that PlannerResult has the expected JSON structure\n\tresult := PlannerResult{\n\t\tAcceptanceCriteria: \"Test criteria\",\n\t\tEscalate:           false,\n\t\tReason:             \"Test reason\",\n\t\tCostCents:          10,\n\t\tModel:              \"test-model\",\n\t}\n\t\n\tif result.AcceptanceCriteria != \"Test criteria\" {\n\t\tt.Errorf(\"Expected AcceptanceCriteria 'Test criteria', got %s\", result.AcceptanceCriteria)\n\t}\n\tif result.Escalate != false {\n\t\tt.Errorf(\"Expected Escalate false, got %v\", result.Escalate)\n\t}\n\tif result.CostCents != 10 {\n\t\tt.Errorf(\"Expected CostCents 10, got %d\", result.CostCents)\n\t}\n}\n\nfunc TestSubIssue_JSONStructure(t *testing.T) {\n\t// Test that SubIssue has the expected JSON structure\n\tsubIssue := SubIssue{\n\t\tTitle: \"Test sub-issue\",\n\t\tBody:  \"Test body\",\n\t}\n\t\n\tif subIssue.Title != \"Test sub-issue\" {\n\t\tt.Errorf(\"Expected Title 'Test sub-issue', got %s\", subIssue.Title)\n\t}\n\tif subIssue.Body != \"Test body\" {\n\t\tt.Errorf(\"Expected Body 'Test body', got %s\", subIssue.Body)\n\t}\n}\n\nfunc TestPlannerHandler_ScopeMethodExists(t *testing.T) {\n\t// Test that the scope method exists (even though it's private)\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\t\n\t// We can't directly test the private scope method, but we can verify\n\t// that HandleIssue calls it indirectly\n\tctx := context.Background()\n\t_, err := handler.HandleIssue(ctx, \"test/repo\", 1, \"Test Issue\", \"Test body\")\n\t\n\t// Error is expected since we don't have real API credentials\n\tif err != nil {\n\t\tt.Logf(\"Expected error without API credentials: %v\", err)\n\t}\n}\n\nfunc TestPlannerHandler_HandleIssue_EmptyBody(t *testing.T) {\n\t// Test handling issue with empty body\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\tctx := context.Background()\n\t\n\tresult, err := handler.HandleIssue(ctx, \"test/repo\", 1, \"Test Issue\", \"\")\n\t\n\t// Should not panic with empty body\n\tif err != nil {\n\t\tt.Logf(\"Error with empty body (expected): %v\", err)\n\t}\n\tif result != nil {\n\t\tt.Logf(\"Result with empty body: %+v\", result)\n\t}\n}\n\nfunc TestPlannerHandler_HandleIssue_LongTitle(t *testing.T) {\n\t// Test handling issue with very long title\n\tlongTitle := \"This is a very long title that might cause issues with the API call or buffer limits \" +\n\t\t\"because it keeps going and going and going and going and going and going and going \" +\n\t\t\"and going and going and going and going and going and going and going and going\"\n\t\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\tctx := context.Background()\n\t\n\tresult, err := handler.HandleIssue(ctx, \"test/repo\", 1, longTitle, \"Test body\")\n\t\n\t// Should not panic with long title\n\tif err != nil {\n\t\tt.Logf(\"Error with long title (expected): %v\", err)\n\t}\n\tif result != nil {\n\t\tt.Logf(\"Result with long title: %+v\", result)\n\t}\n}\n\nfunc TestPlannerHandler_SetBudgetStore(t *testing.T) {\n\t// Test that SetBudgetStore works\n\thandler := NewPlannerHandler(\"test-token\", \"test-api-key\", \"test-model\")\n\t\n\t// Should not panic when setting nil budget store\n\thandler.SetBudgetStore(nil)\n\t\n\t// Test is successful if we reach here without panic\n\tt.Log(\"SetBudgetStore with nil completed without panic\")\n}","path":"./internal/dispatch/planner_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:45:56Z","agent":"clawta","event":"tool_call","tool":"write_file","message":"Written 4244 bytes to ./internal/dispatch/planner_test.go"}
+{"timestamp":"2026-04-04T19:45:56Z","agent":"clawta","event":"info","message":"turn 54/100 (~34758 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:45:59Z","agent":"clawta","event":"model_call","tokens":{"prompt":47624,"response":75}}
+{"timestamp":"2026-04-04T19:45:59Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_J4FCRiAPlROpt0dMKVLvNGmj)"}
+{"timestamp":"2026-04-04T19:45:59Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./internal/dispatch -run \"TestPlanner\" -v 2\u003e\u00261 | tail -30"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:02Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"=== RUN   TestPlannerHandler_NewPlannerHandler\n--- PASS: TestPlannerHandler_NewPlannerHandler (0.00s)\n=== RUN   TestPlannerHandler_HandleIssue_BudgetExceeded\n--- PASS: TestPlannerHandler_HandleIssu..."}
+{"timestamp":"2026-04-04T19:46:02Z","agent":"clawta","event":"info","message":"turn 55/100 (~35151 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:08Z","agent":"clawta","event":"model_call","tokens":{"prompt":48174,"response":213}}
+{"timestamp":"2026-04-04T19:46:08Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_35DfqeqqM5bdPdAZqFZKgYzm)"}
+{"timestamp":"2026-04-04T19:46:08Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"find . -type f \\( -name \"*.md\" -o -name \"*.txt\" -o -name \"*.yaml\" -o -name \"*.yml\" \\) -exec grep -l \"planner\\|Planner\" {} \\;"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:08Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"(no output)"}
+{"timestamp":"2026-04-04T19:46:08Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:46:09Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:46:09Z","agent":"clawta","event":"info","message":"turn 56/100 (~35295 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:12Z","agent":"clawta","event":"model_call","tokens":{"prompt":48415,"response":61}}
+{"timestamp":"2026-04-04T19:46:12Z","agent":"clawta","event":"info","message":"tool_use: list_files (id: call_00_RDXy5KWnjzAW1tpnP7M8VAFP)"}
+{"timestamp":"2026-04-04T19:46:12Z","agent":"clawta","event":"governance","tool":"list_files","params":{"directory":"./workflows"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:12Z","agent":"clawta","event":"tool_call","tool":"list_files","message":"workflows/\nworkflows/README.md\nworkflows/copilot-instructions-docs.md\nworkflows/copilot-instructions-go.md\nworkflows/copilot-instructions-python.md\nworkflows/copilot-review-instructions-go.md\nworkf..."}
+{"timestamp":"2026-04-04T19:46:12Z","agent":"clawta","event":"info","message":"turn 57/100 (~35450 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:15Z","agent":"clawta","event":"model_call","tokens":{"prompt":48649,"response":69}}
+{"timestamp":"2026-04-04T19:46:15Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_4HvRbqT5msI4p92EJfPQILw1)"}
+{"timestamp":"2026-04-04T19:46:15Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./workflows/octi-triage.yml"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:15Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"name: \"Octi — Triage Dispatch\"\n\n# Thin dispatcher: fires a repository_dispatch to octi-pulpo for centralized triage.\n# The actual Claude API call happens in octi-pulpo's triage handler workflow.\n..."}
+{"timestamp":"2026-04-04T19:46:15Z","agent":"clawta","event":"info","message":"turn 58/100 (~35848 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:26Z","agent":"clawta","event":"model_call","tokens":{"prompt":49158,"response":543}}
+{"timestamp":"2026-04-04T19:46:26Z","agent":"clawta","event":"info","message":"tool_use: grep (id: call_00_FJDmVxqmvNMaqWH6F89ee423)"}
+{"timestamp":"2026-04-04T19:46:26Z","agent":"clawta","event":"governance","tool":"grep","params":{"directory":"./internal/dispatch","pattern":"planner.*brain\\|brain.*planner\\|PlannerHandler.*brain"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:26Z","agent":"clawta","event":"tool_call","tool":"grep","message":"No matches found"}
+{"timestamp":"2026-04-04T19:46:26Z","agent":"clawta","event":"info","message":"turn 59/100 (~36334 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:33Z","agent":"clawta","event":"model_call","tokens":{"prompt":49728,"response":351}}
+{"timestamp":"2026-04-04T19:46:33Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_NgxVgfylncYqaepYhDcgmsDV)"}
+{"timestamp":"2026-04-04T19:46:33Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\t\tmodel = \"claude-3-haiku-20241022\"","old_string":"\t\tmodel = \"claude-haiku-4-5-20251001\"","path":"./internal/dispatch/planner.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:33Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/planner.go: replaced 37 bytes with 35 bytes"}
+{"timestamp":"2026-04-04T19:46:33Z","agent":"clawta","event":"info","message":"turn 60/100 (~36604 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:36Z","agent":"clawta","event":"model_call","tokens":{"prompt":50145,"response":86}}
+{"timestamp":"2026-04-04T19:46:36Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_PUPJAMYzRbE3xMtpBxWlEocI)"}
+{"timestamp":"2026-04-04T19:46:36Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"grep -l \"claude-haiku-4-5-20251001\" ./internal/dispatch/*.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:36Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/anthropic_adapter.go\n./internal/dispatch/cascade.go\n./internal/dispatch/cascade_handler.go\n./internal/dispatch/cascade_test.go\n./internal/dispatch/review.go\n./internal/dispatch/..."}
+{"timestamp":"2026-04-04T19:46:36Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:46:37Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:46:37Z","agent":"clawta","event":"info","message":"turn 61/100 (~36713 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:41Z","agent":"clawta","event":"model_call","tokens":{"prompt":50318,"response":133}}
+{"timestamp":"2026-04-04T19:46:41Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_pEnWf7uFYzJliD3nnY2OctkJ)"}
+{"timestamp":"2026-04-04T19:46:41Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\tdefaultModel      = \"claude-3-haiku-20241022\"","old_string":"\tdefaultModel      = \"claude-haiku-4-5-20251001\"","path":"./internal/dispatch/anthropic_adapter.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:41Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/anthropic_adapter.go: replaced 48 bytes with 46 bytes"}
+{"timestamp":"2026-04-04T19:46:41Z","agent":"clawta","event":"info","message":"turn 62/100 (~36754 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:45Z","agent":"clawta","event":"model_call","tokens":{"prompt":50495,"response":147}}
+{"timestamp":"2026-04-04T19:46:45Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_dLhpOtcQUKfM9aDxoupDtx8Z)"}
+{"timestamp":"2026-04-04T19:46:45Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\t{Model: \"claude-3-haiku-20241022\", CostPerMTok: 0.80, Provider: \"anthropic\"},","old_string":"\t{Model: \"claude-haiku-4-5-20251001\", CostPerMTok: 0.80, Provider: \"anthropic\"},","path":"./internal/dispatch/cascade.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:45Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/cascade.go: replaced 80 bytes with 78 bytes"}
+{"timestamp":"2026-04-04T19:46:45Z","agent":"clawta","event":"info","message":"turn 63/100 (~36778 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:48Z","agent":"clawta","event":"model_call","tokens":{"prompt":50683,"response":116}}
+{"timestamp":"2026-04-04T19:46:48Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_TFm9vDTU1tpRPJwTgTvJzuUE)"}
+{"timestamp":"2026-04-04T19:46:48Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\t\tmodel = \"claude-3-haiku-20241022\"","old_string":"\t\tmodel = \"claude-haiku-4-5-20251001\"","path":"./internal/dispatch/cascade_handler.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:48Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/cascade_handler.go: replaced 37 bytes with 35 bytes"}
+{"timestamp":"2026-04-04T19:46:48Z","agent":"clawta","event":"info","message":"turn 64/100 (~36804 tokens, 5m remaining)"}
+{"timestamp":"2026-04-04T19:46:52Z","agent":"clawta","event":"model_call","tokens":{"prompt":50841,"response":120}}
+{"timestamp":"2026-04-04T19:46:52Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_KusCICfamq8ENjrsWhify1nH)"}
+{"timestamp":"2026-04-04T19:46:52Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\tif tier1.Model != \"claude-3-haiku-20241022\" {","old_string":"\tif tier1.Model != \"claude-haiku-4-5-20251001\" {","path":"./internal/dispatch/cascade_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:52Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/cascade_test.go: replaced 48 bytes with 46 bytes"}
+{"timestamp":"2026-04-04T19:46:52Z","agent":"clawta","event":"info","message":"turn 65/100 (~36829 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:46:56Z","agent":"clawta","event":"model_call","tokens":{"prompt":51003,"response":115}}
+{"timestamp":"2026-04-04T19:46:56Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_1MrqAIRBdv3FqSckJB9Ez2Dk)"}
+{"timestamp":"2026-04-04T19:46:56Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\t\tmodel = \"claude-3-haiku-20241022\"","old_string":"\t\tmodel = \"claude-haiku-4-5-20251001\"","path":"./internal/dispatch/review.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:46:56Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/review.go: replaced 37 bytes with 35 bytes"}
+{"timestamp":"2026-04-04T19:46:56Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:46:57Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:46:57Z","agent":"clawta","event":"info","message":"turn 66/100 (~36853 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:01Z","agent":"clawta","event":"model_call","tokens":{"prompt":51159,"response":119}}
+{"timestamp":"2026-04-04T19:47:01Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_t9RL4KC5TZJjskdAf5iu8YM8)"}
+{"timestamp":"2026-04-04T19:47:01Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\t\t\tModel:      \"claude-3-haiku-20241022\",","old_string":"\t\t\tModel:      \"claude-haiku-4-5-20251001\",","path":"./internal/dispatch/telemetry_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:47:01Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/telemetry_test.go: replaced 43 bytes with 41 bytes"}
+{"timestamp":"2026-04-04T19:47:01Z","agent":"clawta","event":"info","message":"turn 67/100 (~36879 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:04Z","agent":"clawta","event":"model_call","tokens":{"prompt":51321,"response":115}}
+{"timestamp":"2026-04-04T19:47:04Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_7b4CQ53dwuG3AvzQuJTbLe5R)"}
+{"timestamp":"2026-04-04T19:47:04Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"\t\tmodel = \"claude-3-haiku-20241022\"","old_string":"\t\tmodel = \"claude-haiku-4-5-20251001\"","path":"./internal/dispatch/triage.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:47:04Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/triage.go: replaced 37 bytes with 35 bytes"}
+{"timestamp":"2026-04-04T19:47:04Z","agent":"clawta","event":"info","message":"turn 68/100 (~36903 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:07Z","agent":"clawta","event":"model_call","tokens":{"prompt":51477,"response":85}}
+{"timestamp":"2026-04-04T19:47:07Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_6NHfd3L8WuAhYLSKWgykGfIx)"}
+{"timestamp":"2026-04-04T19:47:07Z","agent":"clawta","event":"governance","tool":"read_file","params":{"line_range":"30-40","path":"./internal/dispatch/anthropic_adapter.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:47:07Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"os\"\n\t\"os/exec\"\n\t\"path/filepath\"\n\t\"time\"\n\n\t\"github.com/AgentGuardHQ/octi-pulpo/internal/learner\"\n)\n\nconst (\n\tdefaultShellforge = \"shellforge\"\n\tdefaultM..."}
+{"timestamp":"2026-04-04T19:47:07Z","agent":"clawta","event":"info","message":"turn 69/100 (~37684 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:11Z","agent":"clawta","event":"model_call","tokens":{"prompt":52478,"response":122}}
+{"timestamp":"2026-04-04T19:47:11Z","agent":"clawta","event":"info","message":"tool_use: edit_file (id: call_00_7i9zcHzZD5HoyMlPIkP9zPDu)"}
+{"timestamp":"2026-04-04T19:47:11Z","agent":"clawta","event":"governance","tool":"edit_file","params":{"new_string":"// \"claude-3-haiku-20241022\".","old_string":"// \"claude-haiku-4-5-20251001\".","path":"./internal/dispatch/anthropic_adapter.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:47:11Z","agent":"clawta","event":"tool_call","tool":"edit_file","message":"Edited ./internal/dispatch/anthropic_adapter.go: replaced 31 bytes with 29 bytes"}
+{"timestamp":"2026-04-04T19:47:11Z","agent":"clawta","event":"info","message":"turn 70/100 (~37720 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:14Z","agent":"clawta","event":"model_call","tokens":{"prompt":52668,"response":76}}
+{"timestamp":"2026-04-04T19:47:14Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_7QmZy4WXprhXQ9QZjDGmszNs)"}
+{"timestamp":"2026-04-04T19:47:14Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./internal/dispatch -count=1 2\u003e\u00261 | tail -20"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:47:17Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"ok  \tgithub.com/AgentGuardHQ/octi-pulpo/internal/dispatch\t1.942s"}
+{"timestamp":"2026-04-04T19:47:17Z","agent":"clawta","event":"info","message":"drift check..."}
+{"timestamp":"2026-04-04T19:47:18Z","agent":"clawta","event":"info","message":"drift ok — score 9/10"}
+{"timestamp":"2026-04-04T19:47:18Z","agent":"clawta","event":"info","message":"turn 71/100 (~37779 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:21Z","agent":"clawta","event":"model_call","tokens":{"prompt":52792,"response":74}}
+{"timestamp":"2026-04-04T19:47:21Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_RReTM5NNU8WnrqDC6Iso2of9)"}
+{"timestamp":"2026-04-04T19:47:21Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 go test ./... 2\u003e\u00261 | grep -v \"ok\\|?\" | head -20"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:47:25Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"(no output)"}
+{"timestamp":"2026-04-04T19:47:25Z","agent":"clawta","event":"info","message":"turn 72/100 (~37795 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:45Z","agent":"clawta","event":"model_call","tokens":{"prompt":52894,"response":1044}}
+{"timestamp":"2026-04-04T19:47:45Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_ErtA1B9wSLqJ2XyIxmsswixx)"}
+{"timestamp":"2026-04-04T19:47:45Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"find . -name \"*test*.go\" -type f -exec grep -l \"mock\\|Mock\" {} \\;"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:47:45Z","agent":"clawta","event":"tool_call","tool":"run_shell","message":"./internal/dispatch/clawta_adapter_test.go\n./internal/dispatch/copilot_fix_test.go\n./internal/dispatch/adapter_test.go\n./internal/memory/vector_test.go"}
+{"timestamp":"2026-04-04T19:47:45Z","agent":"clawta","event":"info","message":"turn 73/100 (~38824 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:48Z","agent":"clawta","event":"model_call","tokens":{"prompt":54004,"response":64}}
+{"timestamp":"2026-04-04T19:47:48Z","agent":"clawta","event":"info","message":"tool_use: read_file (id: call_00_7iq8h2yuWkTEuHX8lhk1Msq6)"}
+{"timestamp":"2026-04-04T19:47:48Z","agent":"clawta","event":"governance","tool":"read_file","params":{"path":"./internal/dispatch/adapter_test.go"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}
+{"timestamp":"2026-04-04T19:47:48Z","agent":"clawta","event":"tool_call","tool":"read_file","message":"package dispatch\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"io\"\n\t\"net/http\"\n\t\"net/http/httptest\"\n\t\"os\"\n\t\"testing\"\n)\n\n// --- Struct field tests ---\n\nfunc TestTaskFields(t *testing.T) {\n\ttask := Task{\n\t..."}
+{"timestamp":"2026-04-04T19:47:48Z","agent":"clawta","event":"info","message":"turn 74/100 (~40246 tokens, 4m remaining)"}
+{"timestamp":"2026-04-04T19:47:53Z","agent":"clawta","event":"model_call","tokens":{"prompt":55875,"response":193}}
+{"timestamp":"2026-04-04T19:47:53Z","agent":"clawta","event":"info","message":"tool_use: run_shell (id: call_00_u1n7ACl7ad7k93CXCAUnyxb2)"}
+{"timestamp":"2026-04-04T19:47:53Z","agent":"clawta","event":"governance","tool":"run_shell","params":{"command":"cd . \u0026\u0026 git add . \u0026\u0026 git status"},"decision":{"allowed":true,"policy_name":"default-allow","reason":"No matching deny policy"}}

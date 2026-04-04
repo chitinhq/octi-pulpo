@@ -89,7 +89,7 @@ func TestTelemetryWriterWritesJSONL(t *testing.T) {
 			Timestamp:  time.Now().UTC(),
 			TaskID:     "task-2",
 			Provider:   "anthropic",
-			Model:      "claude-haiku-4-5-20251001",
+			Model:      "claude-3-haiku-20241022",
 			Turn:       2,
 			Escalated:  true,
 			StopReason: "max_tokens",

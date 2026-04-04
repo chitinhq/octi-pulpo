@@ -48,7 +48,7 @@ func NewReviewHandler(ghToken, apiKey, model string) *ReviewHandler {
 		apiKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
 	if model == "" {
-		model = "claude-haiku-4-5-20251001"
+		model = "claude-3-haiku-20241022"
 	}
 	return &ReviewHandler{
 		ghToken: ghToken,
@@ -320,8 +320,8 @@ decision must be "approve" or "request_changes".`,
 		reviewResp.Confidence = 0.0
 	}
 
-	// Estimate cost (Sonnet: $3/MTok input, $15/MTok output)
-	costCents := (apiResp.Usage.InputTokens*300 + apiResp.Usage.OutputTokens*1500) / 1_000_000
+	// Estimate cost (Haiku: $0.80/MTok input, $4/MTok output)
+	costCents := (apiResp.Usage.InputTokens*80 + apiResp.Usage.OutputTokens*400) / 1_000_000
 
 	// Record cost in budget store
 	recordBudgetCost(ctx, rh.budgetStore, "reviewer", costCents,

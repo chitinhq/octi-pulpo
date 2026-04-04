@@ -47,7 +47,7 @@ func NewTriageHandler(ghToken, apiKey, model string) *TriageHandler {
 		apiKey = os.Getenv("ANTHROPIC_API_KEY")
 	}
 	if model == "" {
-		model = "claude-haiku-4-5-20251001"
+		model = "claude-3-haiku-20241022"
 	}
 	return &TriageHandler{
 		ghToken:    ghToken,

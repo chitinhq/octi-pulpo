@@ -111,7 +111,7 @@ func TestDefaultCascadeHas2Tiers(t *testing.T) {
 	if tier1.Provider != "anthropic" {
 		t.Errorf("tier 1 provider: want anthropic, got %s", tier1.Provider)
 	}
-	if tier1.Model != "claude-haiku-4-5-20251001" {
+	if tier1.Model != "claude-3-haiku-20241022" {
 		t.Errorf("tier 1 model: want haiku, got %s", tier1.Model)
 	}
 }
