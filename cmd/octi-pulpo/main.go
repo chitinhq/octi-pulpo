@@ -138,13 +138,16 @@ func main() {
 	// Initialize API-driven dispatch adapters
 	anthropicAdapter := dispatch.NewAnthropicAdapter("", "")
 	ghActionsAdapter := dispatch.NewGHActionsAdapter("")
+	copilotAdapter := dispatch.NewCopilotAdapter("")
 
 	// Wire learner for auto-store of task outcomes in episodic memory.
 	taskLearner := learner.New(mem)
 	anthropicAdapter.SetLearner(taskLearner)
+	copilotAdapter.SetLearner(taskLearner)
 
 	server.SetAnthropicAdapter(anthropicAdapter)
 	server.SetGHActionsAdapter(ghActionsAdapter)
+	server.SetCopilotAdapter(copilotAdapter)
 
 	// Optional HTTP mode: run webhook server alongside MCP
 	httpPort := os.Getenv("OCTI_HTTP_PORT")
@@ -217,11 +220,11 @@ func main() {
 			brain.SetSprintStore(sprintStore)
 			brain.SetProfileStore(profiles)
 			brain.SetStandupStore(standupStore)
-			// Wire task adapters: Clawta (local DeepSeek) → GH Actions (Copilot) fallback
+			// Wire task adapters: Clawta (local DeepSeek) → GH Actions (Copilot) fallback → Copilot SDK
 			clawtaBinary := filepath.Join(home, "agentguard-workspace", "clawta", "bench", "clawta-linux-amd64")
 			clawtaAdapter := dispatch.NewClawtaAdapter(clawtaBinary, "", "", "")
 			clawtaAdapter.SetLearner(taskLearner)
-			brain.SetAdapters(clawtaAdapter, ghActionsAdapter)
+			brain.SetAdapters(clawtaAdapter, ghActionsAdapter, copilotAdapter)
 			if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
 				brain.SetGitHubToken(ghToken)
 			}

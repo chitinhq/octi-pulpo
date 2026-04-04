@@ -67,6 +67,7 @@ type Server struct {
 	admissionGate    *admission.Gate
 	anthropicAdapter *dispatch.AnthropicAdapter
 	ghActionsAdapter *dispatch.GHActionsAdapter
+	copilotAdapter   *dispatch.CopilotAdapter
 	rdb              *redis.Client
 	redisNS          string
 }
@@ -127,6 +128,7 @@ func (s *Server) SetAdmissionGate(g *admission.Gate) {
 
 func (s *Server) SetAnthropicAdapter(a *dispatch.AnthropicAdapter) { s.anthropicAdapter = a }
 func (s *Server) SetGHActionsAdapter(a *dispatch.GHActionsAdapter) { s.ghActionsAdapter = a }
+func (s *Server) SetCopilotAdapter(a *dispatch.CopilotAdapter) { s.copilotAdapter = a }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
 func (s *Server) Serve() error {
