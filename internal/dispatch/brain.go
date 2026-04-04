@@ -396,7 +396,12 @@ func (b *Brain) checkStuckAgents(ctx context.Context) {
 
 // checkInactiveSquads inspects the recent dispatch log and alerts when a squad
 // has had no dispatch activity for more than 24 hours.
+// Suppressed when API adapters are available — adapter dispatch activity isn't
+// recorded in the legacy dispatch log, so squads would always appear idle.
 func (b *Brain) checkInactiveSquads(ctx context.Context) {
+	if len(b.adapters) > 0 {
+		return
+	}
 	records, err := b.dispatcher.RecentDispatches(ctx, 200)
 	if err != nil || len(records) == 0 {
 		return
@@ -442,8 +447,14 @@ func (b *Brain) checkInactiveSquads(ctx context.Context) {
 
 // maybeNotifyConstraintChange fires edge-triggered Slack alerts when driver
 // availability transitions between healthy and all-exhausted states.
+// Suppressed when API adapters are available — CLI driver state is noise
+// when dispatch flows through Cata/GH Actions.
 func (b *Brain) maybeNotifyConstraintChange(ctx context.Context, constraint Constraint) {
 	if b.notifier == nil || !b.notifier.Enabled() {
+		return
+	}
+	// When adapters handle dispatch, CLI driver state is informational only.
+	if len(b.adapters) > 0 {
 		return
 	}
 	nowDown := constraint.Type == "all_drivers_down"
@@ -738,9 +749,11 @@ func (b *Brain) executeLeverageAction(ctx context.Context, action LeverageAction
 					result, err := a.Dispatch(context.Background(), t)
 					if err != nil {
 						b.log.Printf("adapter %s async result: %s#%d error: %v", a.Name(), repo, issueNum, err)
+						b.notifyAdapterResult(a.Name(), repo, issueNum, "error", err.Error())
 						return
 					}
 					b.log.Printf("adapter %s async result: %s#%d -> %s", a.Name(), repo, issueNum, result.Status)
+					b.notifyAdapterResult(a.Name(), repo, issueNum, result.Status, result.Error)
 				}(adapter, task, action.Repo, action.IssueNum)
 				return
 			}
@@ -806,6 +819,16 @@ func (b *Brain) findStalePRs(ctx context.Context) int {
 		}
 	}
 	return staleCount
+}
+
+// notifyAdapterResult posts a Slack notification for an adapter dispatch outcome.
+func (b *Brain) notifyAdapterResult(adapter, repo string, issueNum int, status, errMsg string) {
+	if b.notifier == nil || !b.notifier.Enabled() {
+		return
+	}
+	if err := b.notifier.PostAdapterDispatch(context.Background(), adapter, repo, issueNum, status, errMsg); err != nil {
+		b.log.Printf("slack adapter dispatch: %v", err)
+	}
 }
 
 // srForSquad returns the SR agent name for a given squad.

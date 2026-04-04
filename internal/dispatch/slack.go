@@ -363,6 +363,26 @@ func (n *Notifier) PostInactiveSquadAlert(ctx context.Context, squad string, idl
 	return n.post(ctx, map[string]interface{}{"text": text})
 }
 
+// PostAdapterDispatch sends a Slack notification when an adapter completes a dispatch.
+// Includes the adapter name, repo, issue number, status, and any error.
+func (n *Notifier) PostAdapterDispatch(ctx context.Context, adapter, repo string, issueNum int, status, errMsg string) error {
+	if !n.Enabled() {
+		return nil
+	}
+	emoji := "✅"
+	if status != "completed" {
+		emoji = "❌"
+	}
+	text := fmt.Sprintf(
+		"%s *Adapter Dispatch: `%s`*\nRepo: `%s` Issue: #%d\nStatus: %s",
+		emoji, adapter, repo, issueNum, status,
+	)
+	if errMsg != "" {
+		text += fmt.Sprintf("\nError: %s", errMsg)
+	}
+	return n.post(ctx, map[string]interface{}{"text": text})
+}
+
 // PostSprintGoalAlert sends an interactive Block Kit message when a sprint goal is delivered.
 // It includes [Accept] and [Request Changes] action buttons.
 func (n *Notifier) PostSprintGoalAlert(ctx context.Context, squad, goal string) error {
