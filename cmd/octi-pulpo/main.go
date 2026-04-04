@@ -217,6 +217,14 @@ func main() {
 			brain.SetSprintStore(sprintStore)
 			brain.SetProfileStore(profiles)
 			brain.SetStandupStore(standupStore)
+			// Wire task adapters: Cata (local DeepSeek) → GH Actions (Copilot) fallback
+			cataBinary := filepath.Join(home, "agentguard-workspace", "cata", "bench", "cata-linux-amd64")
+			cataAdapter := dispatch.NewCataAdapter(cataBinary, "", "", "")
+			cataAdapter.SetLearner(taskLearner)
+			brain.SetAdapters(cataAdapter, ghActionsAdapter)
+			if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
+				brain.SetGitHubToken(ghToken)
+			}
 			if slackURL := os.Getenv("SLACK_WEBHOOK_URL"); slackURL != "" {
 				brain.SetNotifier(dispatch.NewNotifier(slackURL))
 			}
