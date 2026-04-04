@@ -843,6 +843,7 @@ func (b *Brain) srForSquad(squad string) string {
 		"cata":       "cata-sr",
 		"sentinel":   "sentinel-sr",
 		"llmint":     "llmint-sr",
+		"ops":        "kernel-sr",
 	}
 	return mapping[squad]
 }
