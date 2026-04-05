@@ -43,7 +43,7 @@ jobs:
 
       - name: Configure git identity
         run: |
-          git config --global user.email "octi-pulpo@agentguardhq.com"
+          git config --global user.email "octi-pulpo@chitinhq.com"
           git config --global user.name "Octi Pulpo Bot"
 
       - name: Run Clawta agent
