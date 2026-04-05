@@ -128,6 +128,7 @@ var DefaultRepos = []string{
 	"AgentGuardHQ/agentguard-workspace",
 	"AgentGuardHQ/agentguard-extensions",
 	"AgentGuardHQ/preflight",
+	"AgentGuardHQ/homebrew-tap",
 }
 
 // NewStore creates a sprint store backed by Redis.

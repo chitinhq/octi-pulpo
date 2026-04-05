@@ -27,15 +27,18 @@ done
 # ── Target repos ────────────────────────────────────────────────
 # Format: repo|default_branch|language
 FLEET=(
-  "AgentGuardHQ/agentguard-cloud|main|typescript"
   "AgentGuardHQ/agentguard|main|go"
   "AgentGuardHQ/octi-pulpo|main|go"
   "AgentGuardHQ/shellforge|main|go"
+  "AgentGuardHQ/clawta|main|go"
+  "AgentGuardHQ/sentinel|main|go"
+  "AgentGuardHQ/llmint|main|go"
   "AgentGuardHQ/agentguard-analytics|main|python"
+  "AgentGuardHQ/agentguard-cloud|main|typescript"
+  "AgentGuardHQ/agentguard-workspace|master|docs"
   "AgentGuardHQ/agentguard-extensions|master|mixed"
   "AgentGuardHQ/preflight|master|go"
   "AgentGuardHQ/homebrew-tap|main|ruby"
-  "AgentGuardHQ/agentguard-workspace|master|docs"
 )
 
 # ── Track results ───────────────────────────────────────────────

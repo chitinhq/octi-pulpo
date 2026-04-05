@@ -40,8 +40,8 @@ done
 # Validate --lang if provided
 if [ -n "$LANG" ]; then
   case "$LANG" in
-    go) ;;
-    *) echo "Error: unsupported language '${LANG}'. Supported: go"; exit 1 ;;
+    go|python|typescript|ruby|docs|mixed) ;;
+    *) echo "Error: unsupported language '${LANG}'. Supported: go, python, typescript, ruby, docs, mixed"; exit 1 ;;
   esac
 fi
 
