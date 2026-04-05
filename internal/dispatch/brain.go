@@ -291,7 +291,7 @@ func (b *Brain) maybePostDashboard(ctx context.Context) {
 		return
 	}
 
-	drivers := b.dispatcher.router.AllHealth()
+	// NOTE: CLI driver health is deprecated (see #153). Pass nil to omit from digest.
 	rdb := b.dispatcher.RedisClient()
 	ns := b.dispatcher.Namespace()
 
@@ -306,7 +306,7 @@ func (b *Brain) maybePostDashboard(ctx context.Context) {
 			b.log.Printf("sprint digest: get all: %v", err)
 			// fall through to budget-only dashboard
 		} else {
-			if err := b.notifier.PostSprintDigest(ctx, drivers, ok, fail, items); err != nil {
+			if err := b.notifier.PostSprintDigest(ctx, nil, ok, fail, items); err != nil {
 				b.log.Printf("slack sprint digest: %v", err)
 				return
 			}
@@ -315,7 +315,7 @@ func (b *Brain) maybePostDashboard(ctx context.Context) {
 		}
 	}
 
-	if err := b.notifier.PostBudgetDashboard(ctx, drivers, ok, fail); err != nil {
+	if err := b.notifier.PostBudgetDashboard(ctx, nil, ok, fail); err != nil {
 		b.log.Printf("slack dashboard: %v", err)
 		return
 	}
