@@ -133,7 +133,7 @@ func TestSanitizeBranch(t *testing.T) {
 	}{
 		{"task-001", "task-001"},
 		{"Task 001", "task-001"},
-		{"feat/add-cata", "feat-add-cata"},
+		{"feat/add-clawta", "feat-add-clawta"},
 		{"v1.2.3", "v1-2-3"},
 		{"task:fix:bug", "task-fix-bug"},
 		{"UPPER CASE", "upper-case"},
