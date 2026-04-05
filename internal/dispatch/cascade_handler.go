@@ -301,7 +301,7 @@ func (ch *CascadeHandler) diffRoadmap(ctx context.Context, roadmap string, exist
 
 Compare the roadmap items against the existing cascade:managed issues. Determine:
 
-1. **Create** — roadmap items that have no matching issue yet. Create them in the correct target repo.
+1. **Create** — roadmap items that have no matching issue yet. Create them in the correct target repo with appropriate priority labels (e.g., "priority:P0" through "priority:P3") based on their importance in the roadmap.
 2. **Close** — existing issues whose roadmap items are marked "done" or have been removed from the roadmap.
 3. **Relabel** — existing issues whose priority changed (use labels like "priority:P0" through "priority:P3").
 
@@ -309,6 +309,9 @@ Rules:
 - Only manage issues with the "cascade:managed" label — never touch issues without it.
 - Match roadmap items to issues by title similarity and repo target.
 - For new issues, write a clear title (prefixed with the roadmap category) and a body with context from the roadmap.
+- Include appropriate priority labels (e.g., "priority:P0", "priority:P1", etc.) for new issues based on their roadmap importance.
+- Always include "cascade:managed" label for new issues (it will be added automatically if missing).
+- The "triage:needed" label will be added automatically for new issues.
 - When closing, reference the roadmap change as the reason.
 - Be conservative — if unsure whether an item matches an existing issue, do NOT create a duplicate.
 - Do NOT create issues for items marked "done" in the roadmap.
@@ -317,7 +320,7 @@ Rules:
 Respond with ONLY a JSON object:
 {
   "actions": [
-    {"type": "create", "repo": "AgentGuardHQ/...", "title": "...", "body": "..."},
+    {"type": "create", "repo": "AgentGuardHQ/...", "title": "...", "body": "...", "labels": ["priority:P0", "cascade:managed", "triage:needed"]},
     {"type": "close", "repo": "AgentGuardHQ/...", "issue_number": 123, "reason": "..."},
     {"type": "relabel", "repo": "AgentGuardHQ/...", "issue_number": 123, "labels": ["priority:P0", "cascade:managed"]}
   ]
@@ -427,10 +430,38 @@ func (ch *CascadeHandler) executeCreate(ctx context.Context, action CascadeActio
 	url := fmt.Sprintf("https://api.github.com/repos/%s/issues", action.Repo)
 
 	body := action.Body + "\n\n---\n_Created by Octi Pulpo strategy cascade_"
+	
+	// Start with labels from the action if provided
+	labels := action.Labels
+	
+	// Ensure cascade:managed is always in the label set
+	hasCascade := false
+	for _, l := range labels {
+		if l == "cascade:managed" {
+			hasCascade = true
+			break
+		}
+	}
+	if !hasCascade {
+		labels = append(labels, "cascade:managed")
+	}
+	
+	// Add triage:needed if not already present
+	hasTriage := false
+	for _, l := range labels {
+		if l == "triage:needed" {
+			hasTriage = true
+			break
+		}
+	}
+	if !hasTriage {
+		labels = append(labels, "triage:needed")
+	}
+	
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"title":  action.Title,
 		"body":   body,
-		"labels": []string{"cascade:managed", "triage:needed"},
+		"labels": labels,
 	})
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
