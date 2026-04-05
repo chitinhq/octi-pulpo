@@ -7,9 +7,9 @@ Swarm coordination layer for autonomous agent fleets.
 </p>
 
 <p align="center">
-  <a href="https://github.com/AgentGuardHQ/octi-pulpo"><img src="https://img.shields.io/badge/Status-Alpha-orange" alt="Alpha"></a>
-  <a href="https://github.com/AgentGuardHQ/octi-pulpo/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
-  <a href="https://pkg.go.dev/github.com/AgentGuardHQ/octi-pulpo"><img src="https://img.shields.io/badge/Go-1.18+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
+  <a href="https://github.com/chitinhq/octi-pulpo"><img src="https://img.shields.io/badge/Status-Alpha-orange" alt="Alpha"></a>
+  <a href="https://github.com/chitinhq/octi-pulpo/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="https://pkg.go.dev/github.com/chitinhq/octi-pulpo"><img src="https://img.shields.io/badge/Go-1.18+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
 </p>
 
 ---
@@ -36,7 +36,7 @@ Running multiple AI agents? They step on each other. Duplicate work. Miss handof
 
 ```bash
 # Build from source
-git clone https://github.com/AgentGuardHQ/octi-pulpo.git
+git clone https://github.com/chitinhq/octi-pulpo.git
 cd octi-pulpo
 go build -o octi-pulpo ./cmd/octi-pulpo/
 
@@ -112,7 +112,7 @@ Agents interact through standard MCP tools:
    Redis (hot state)   Vector DB (cold knowledge)
 ```
 
-Octi Pulpo is **independent** — it works with any agent swarm, with or without governance. When paired with the [AgentGuard Gateway](https://github.com/AgentGuardHQ/agentguard), agents are governed transparently regardless of execution surface.
+Octi Pulpo is **independent** — it works with any agent swarm, with or without governance. When paired with the [AgentGuard Gateway](https://github.com/chitinhq/agentguard), agents are governed transparently regardless of execution surface.
 
 ### Execution Surfaces
 
@@ -120,17 +120,17 @@ The router picks the cheapest capable surface for each task (Ollama → GitHub A
 
 - **Ollama** — Free local models for triage, classification, and simple tasks
 - **GitHub Actions** — `repository_dispatch` triggers Copilot-powered workflows at zero marginal cost
-- **Anthropic API** — Per-token burst capacity via [ShellForge](https://github.com/AgentGuardHQ/shellforge) agent harness, gated by a $50/mo budget pool with priority-based thresholds (CRITICAL 0%, HIGH 15%, NORMAL 30%, BACKGROUND 50%)
+- **Anthropic API** — Per-token burst capacity via [ShellForge](https://github.com/chitinhq/shellforge) agent harness, gated by a $50/mo budget pool with priority-based thresholds (CRITICAL 0%, HIGH 15%, NORMAL 30%, BACKGROUND 50%)
 
 ## Part of the Governed Swarm Platform
 
 | Repo | Role |
 |------|------|
-| [AgentGuard](https://github.com/AgentGuardHQ/agentguard) | Governance — policy enforcement, gateway, telemetry, invariants |
+| [AgentGuard](https://github.com/chitinhq/agentguard) | Governance — policy enforcement, gateway, telemetry, invariants |
 | **Octi Pulpo** | **Coordination — pipeline controller, model routing, dispatch adapters, Slack control plane** |
-| [ShellForge](https://github.com/AgentGuardHQ/shellforge) | Execution — agent harness (Ralph Loop, sub-agent orchestration, Anthropic API runner) |
-| [Preflight](https://github.com/AgentGuardHQ/preflight) | Protocol — universal design-before-you-build standard |
-| [Extensions](https://github.com/AgentGuardHQ/agentguard-extensions) | Drivers, integrations, policies, example swarms |
+| [ShellForge](https://github.com/chitinhq/shellforge) | Execution — agent harness (Ralph Loop, sub-agent orchestration, Anthropic API runner) |
+| [Preflight](https://github.com/chitinhq/preflight) | Protocol — universal design-before-you-build standard |
+| [Extensions](https://github.com/chitinhq/agentguard-extensions) | Drivers, integrations, policies, example swarms |
 
 ## Stack
 

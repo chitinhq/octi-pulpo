@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
+	"github.com/chitinhq/octi-pulpo/internal/memory"
 )
 
 // Procedure is a learned recipe extracted from episodic memories.
@@ -97,7 +97,7 @@ func parseEpisode(content string) episodeData {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "Type:") {
-			// Format: "Type: bugfix | Repo: AgentGuardHQ/octi-pulpo | Priority: high"
+			// Format: "Type: bugfix | Repo: chitinhq/octi-pulpo | Priority: high"
 			parts := strings.Split(line, "|")
 			for _, p := range parts {
 				p = strings.TrimSpace(p)

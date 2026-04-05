@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
+	"github.com/chitinhq/octi-pulpo/internal/standup"
 	"github.com/redis/go-redis/v9"
 )
 

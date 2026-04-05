@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/sprint"
+	"github.com/chitinhq/octi-pulpo/internal/standup"
 )
 
 // Constraint represents the single most important bottleneck in the system.

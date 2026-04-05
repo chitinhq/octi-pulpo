@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/sprint"
 )
 
 func TestNotifier_Enabled(t *testing.T) {
@@ -173,9 +173,9 @@ func TestNotifier_PostSprintDigest_Basic(t *testing.T) {
 		{Name: "codex", CircuitState: "OPEN", Failures: 73},
 	}
 	items := []sprint.SprintItem{
-		{IssueNum: 1, Repo: "AgentGuardHQ/octi-pulpo", Title: "feat A", Status: "done", Priority: 0},
-		{IssueNum: 2, Repo: "AgentGuardHQ/octi-pulpo", Title: "feat B", Status: "open", Priority: 1},
-		{IssueNum: 3, Repo: "AgentGuardHQ/octi-pulpo", Title: "feat C", Status: "pr_open", PRNumber: 42, Priority: 1},
+		{IssueNum: 1, Repo: "chitinhq/octi-pulpo", Title: "feat A", Status: "done", Priority: 0},
+		{IssueNum: 2, Repo: "chitinhq/octi-pulpo", Title: "feat B", Status: "open", Priority: 1},
+		{IssueNum: 3, Repo: "chitinhq/octi-pulpo", Title: "feat C", Status: "pr_open", PRNumber: 42, Priority: 1},
 	}
 
 	if err := n.PostSprintDigest(ctx, drivers, 90, 10, items); err != nil {
@@ -223,8 +223,8 @@ func TestNotifier_PostSprintDigest_ShowsBlockers(t *testing.T) {
 
 	// Item 20 depends on item 10, which is still open → blocker
 	items := []sprint.SprintItem{
-		{IssueNum: 10, Repo: "AgentGuardHQ/octi-pulpo", Title: "dep item", Status: "open", Priority: 1},
-		{IssueNum: 20, Repo: "AgentGuardHQ/octi-pulpo", Title: "blocked item", Status: "open", Priority: 2, DependsOn: []int{10}},
+		{IssueNum: 10, Repo: "chitinhq/octi-pulpo", Title: "dep item", Status: "open", Priority: 1},
+		{IssueNum: 20, Repo: "chitinhq/octi-pulpo", Title: "blocked item", Status: "open", Priority: 2, DependsOn: []int{10}},
 	}
 
 	if err := n.PostSprintDigest(ctx, nil, 0, 0, items); err != nil {
@@ -261,8 +261,8 @@ func TestNotifier_PostSprintDigest_NoBlockersWhenDepDone(t *testing.T) {
 
 	// Item 20 depends on item 10, which is done → not a blocker
 	items := []sprint.SprintItem{
-		{IssueNum: 10, Repo: "AgentGuardHQ/octi-pulpo", Title: "dep item", Status: "done", Priority: 0},
-		{IssueNum: 20, Repo: "AgentGuardHQ/octi-pulpo", Title: "unblocked item", Status: "open", Priority: 1, DependsOn: []int{10}},
+		{IssueNum: 10, Repo: "chitinhq/octi-pulpo", Title: "dep item", Status: "done", Priority: 0},
+		{IssueNum: 20, Repo: "chitinhq/octi-pulpo", Title: "unblocked item", Status: "open", Priority: 1, DependsOn: []int{10}},
 	}
 
 	if err := n.PostSprintDigest(ctx, nil, 0, 0, items); err != nil {

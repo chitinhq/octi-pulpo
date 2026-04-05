@@ -13,7 +13,7 @@ type Adapter interface {
 type Task struct {
 	ID       string   `json:"id"`
 	Type     string   `json:"type"`     // "code-gen", "bugfix", "pr-review", "qa", "triage"
-	Repo     string   `json:"repo"`     // "AgentGuardHQ/octi-pulpo"
+	Repo     string   `json:"repo"`     // "chitinhq/octi-pulpo"
 	Prompt   string   `json:"prompt"`
 	Toolset  []string `json:"toolset"`  // allowed tools for this task type
 	Priority string   `json:"priority"` // "critical", "high", "normal", "background"

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/admission"
+	"github.com/chitinhq/octi-pulpo/internal/admission"
 )
 
 // newTestServerWithAdmission wires a real admission.Gate (nil Redis — Score is

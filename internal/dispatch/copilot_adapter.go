@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/learner"
+	"github.com/chitinhq/octi-pulpo/internal/learner"
 )
 
 const (

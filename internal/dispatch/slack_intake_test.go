@@ -1,9 +1,6 @@
 package dispatch
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestClassifyMessage(t *testing.T) {
 	tests := []struct {
@@ -14,7 +11,7 @@ func TestClassifyMessage(t *testing.T) {
 		{"pipeline pause", MessageTypePipelineCmd},
 		{"fix the auth bug in cloud", MessageTypeBrief},
 		{"we need resume parsing for ReadyBench", MessageTypeBrief},
-		{"hello", MessageTypeBrief},
+		{"hello", MessageTypeBrief}, // anything non-pipeline is a brief
 	}
 
 	for _, tt := range tests {
@@ -25,19 +22,31 @@ func TestClassifyMessage(t *testing.T) {
 	}
 }
 
-func TestFormatBriefIssue(t *testing.T) {
-	title, body := FormatBriefIssue("fix the auth bug in cloud login", "U12345")
+func TestFormatBudgetAlert(t *testing.T) {
+	alert := FormatBudgetAlert("claude-code", 15, 2)
 
-	if title == "" {
-		t.Error("expected non-empty title")
+	if !contains(alert, "claude-code") {
+		t.Error("expected driver name in alert")
 	}
-	if body == "" {
-		t.Error("expected non-empty body")
+	if !contains(alert, "15%") {
+		t.Error("expected percentage in alert")
 	}
-	if !strings.Contains(body, "U12345") {
-		t.Error("expected user ID in body")
+	if !contains(alert, "2 architect") {
+		t.Error("expected queued task count in alert")
 	}
-	if !strings.Contains(body, "Slack brief") {
-		t.Error("expected Slack brief marker in body")
+}
+
+func TestFormatEscalation(t *testing.T) {
+	blocks := FormatEscalation("chitinhq/agentguard", 42, "High blast radius: modifies auth middleware", 55)
+
+	if len(blocks) == 0 {
+		t.Fatal("expected non-empty blocks")
+	}
+	raw := blocksToString(blocks)
+	if !contains(raw, "#42") {
+		t.Error("expected PR number in escalation")
+	}
+	if !contains(raw, "auth middleware") {
+		t.Error("expected reason in escalation")
 	}
 }

@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/admission"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/org"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
+	"github.com/chitinhq/octi-pulpo/internal/admission"
+	"github.com/chitinhq/octi-pulpo/internal/budget"
+	"github.com/chitinhq/octi-pulpo/internal/coordination"
+	"github.com/chitinhq/octi-pulpo/internal/dispatch"
+	"github.com/chitinhq/octi-pulpo/internal/memory"
+	"github.com/chitinhq/octi-pulpo/internal/org"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/sprint"
+	"github.com/chitinhq/octi-pulpo/internal/standup"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -1115,7 +1115,7 @@ func toolDefs() []ToolDef {
 				"properties": map[string]interface{}{
 					"eventType": map[string]interface{}{"type": "string", "enum": []string{"pr.opened", "pr.updated", "ci.completed", "timer", "budget.change", "manual", "slack.action"}, "description": "Event type"},
 					"source":    map[string]string{"type": "string", "description": "Event source (github, cron, slack, manual)"},
-					"repo":      map[string]string{"type": "string", "description": "Repository full name (e.g. AgentGuardHQ/agentguard)"},
+					"repo":      map[string]string{"type": "string", "description": "Repository full name (e.g. chitinhq/agentguard)"},
 					"payload":   map[string]interface{}{"type": "object", "description": "Event-specific key-value data"},
 					"priority":  map[string]interface{}{"type": "number", "description": "Priority (0=critical, 1=high, 2=normal, 3=background)"},
 				},
@@ -1165,7 +1165,7 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"repo":                 map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo)"},
+					"repo":                 map[string]string{"type": "string", "description": "Repo (e.g. chitinhq/octi-pulpo)"},
 					"issue_num":            map[string]interface{}{"type": "number", "description": "GitHub issue number. Use 0 (or omit) when create_github_issue=true to let the tool assign one."},
 					"title":                map[string]string{"type": "string", "description": "Sprint item title"},
 					"priority":             map[string]interface{}{"type": "number", "enum": []int{0, 1, 2}, "description": "Priority: 0=P0 critical, 1=P1 high, 2=P2 normal"},
@@ -1187,7 +1187,7 @@ func toolDefs() []ToolDef {
 				"properties": map[string]interface{}{
 					"issue_num": map[string]interface{}{"type": "number", "description": "GitHub issue number to reprioritize"},
 					"priority":  map[string]interface{}{"type": "number", "enum": []int{0, 1, 2}, "description": "New priority: 0=P0 critical, 1=P1 high, 2=P2 normal"},
-					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo). If omitted, all tracked repos are searched."},
+					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. chitinhq/octi-pulpo). If omitted, all tracked repos are searched."},
 				},
 				"required": []string{"issue_num", "priority"},
 			},
@@ -1199,7 +1199,7 @@ func toolDefs() []ToolDef {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"issue_num": map[string]interface{}{"type": "number", "description": "GitHub issue number to mark done"},
-					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. AgentGuardHQ/octi-pulpo). If omitted, all tracked repos are searched."},
+					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. chitinhq/octi-pulpo). If omitted, all tracked repos are searched."},
 					"summary":   map[string]string{"type": "string", "description": "Optional run summary. When provided, closes the GitHub issue and posts this text as a comment. Leave empty to only update Redis without touching GitHub."},
 				},
 				"required": []string{"issue_num"},
@@ -1355,7 +1355,7 @@ func toolDefs() []ToolDef {
 				"properties": map[string]interface{}{
 					"title":            map[string]string{"type": "string", "description": "Short task title"},
 					"squad":            map[string]string{"type": "string", "description": "Owning squad (e.g. 'kernel')"},
-					"repo":             map[string]string{"type": "string", "description": "Target repo (e.g. 'AgentGuardHQ/agentguard')"},
+					"repo":             map[string]string{"type": "string", "description": "Target repo (e.g. 'chitinhq/agentguard')"},
 					"file_paths":       map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Files the task will touch (used for blast-radius scoring)"},
 					"priority":         map[string]interface{}{"type": "integer", "description": "0=CRITICAL, 1=HIGH, 2=NORMAL, 3=BACKGROUND"},
 					"is_reversible":    map[string]interface{}{"type": "boolean", "description": "Whether the changes can be easily undone"},

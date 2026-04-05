@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/coordination"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -269,12 +269,12 @@ func TestEventRouter_MatchesPROpened(t *testing.T) {
 	event := Event{
 		Type:   EventPROpened,
 		Source: "github",
-		Repo:   "AgentGuardHQ/agentguard",
+		Repo:   "chitinhq/agentguard",
 	}
 
 	matches := er.Match(event)
 	if len(matches) == 0 {
-		t.Fatal("expected at least one match for pr.opened on AgentGuardHQ/agentguard")
+		t.Fatal("expected at least one match for pr.opened on chitinhq/agentguard")
 	}
 
 	found := false
@@ -295,7 +295,7 @@ func TestEventRouter_MatchesCICompleted(t *testing.T) {
 	event := Event{
 		Type:   EventCICompleted,
 		Source: "github",
-		Repo:   "AgentGuardHQ/agentguard-cloud",
+		Repo:   "chitinhq/agentguard-cloud",
 	}
 
 	matches := er.Match(event)
@@ -429,7 +429,7 @@ func TestDispatchEvent_PROpenedRoutes(t *testing.T) {
 	event := Event{
 		Type:   EventPROpened,
 		Source: "github",
-		Repo:   "AgentGuardHQ/agentguard",
+		Repo:   "chitinhq/agentguard",
 	}
 
 	results, err := d.DispatchEvent(ctx, event)

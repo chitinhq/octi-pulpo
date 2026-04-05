@@ -117,18 +117,18 @@ type Store struct {
 
 // DefaultRepos is the standard set of repos to sync.
 var DefaultRepos = []string{
-	"AgentGuardHQ/agentguard",
-	"AgentGuardHQ/octi-pulpo",
-	"AgentGuardHQ/shellforge",
-	"AgentGuardHQ/clawta",
-	"AgentGuardHQ/sentinel",
-	"AgentGuardHQ/llmint",
-	"AgentGuardHQ/agentguard-analytics",
-	"AgentGuardHQ/agentguard-cloud",
-	"AgentGuardHQ/agentguard-workspace",
-	"AgentGuardHQ/agentguard-extensions",
-	"AgentGuardHQ/preflight",
-	"AgentGuardHQ/homebrew-tap",
+	"chitinhq/agentguard",
+	"chitinhq/octi-pulpo",
+	"chitinhq/shellforge",
+	"chitinhq/clawta",
+	"chitinhq/sentinel",
+	"chitinhq/llmint",
+	"chitinhq/agentguard-analytics",
+	"chitinhq/agentguard-cloud",
+	"chitinhq/agentguard-workspace",
+	"chitinhq/agentguard-extensions",
+	"chitinhq/preflight",
+	"chitinhq/homebrew-tap",
 }
 
 // NewStore creates a sprint store backed by Redis.

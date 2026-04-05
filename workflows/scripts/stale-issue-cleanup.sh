@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scan all AgentGuardHQ repos for stale issues and close them.
+# Scan all chitinhq repos for stale issues and close them.
 # Usage: stale-issue-cleanup.sh [--dry-run] [--days <N>]
 set -euo pipefail
 
@@ -14,7 +14,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: stale-issue-cleanup.sh [--dry-run] [--days <N>]"
       echo ""
-      echo "Scans all AgentGuardHQ repos for stale issues (no activity"
+      echo "Scans all chitinhq repos for stale issues (no activity"
       echo "in the last N days) and closes them with a standard comment."
       echo ""
       echo "Options:"
@@ -29,15 +29,15 @@ done
 
 # ── Target repos ────────────────────────────────────────────────
 REPOS=(
-  "AgentGuardHQ/agentguard-cloud"
-  "AgentGuardHQ/agentguard"
-  "AgentGuardHQ/octi-pulpo"
-  "AgentGuardHQ/shellforge"
-  "AgentGuardHQ/agentguard-analytics"
-  "AgentGuardHQ/agentguard-extensions"
-  "AgentGuardHQ/preflight"
-  "AgentGuardHQ/homebrew-tap"
-  "AgentGuardHQ/agentguard-workspace"
+  "chitinhq/agentguard-cloud"
+  "chitinhq/agentguard"
+  "chitinhq/octi-pulpo"
+  "chitinhq/shellforge"
+  "chitinhq/agentguard-analytics"
+  "chitinhq/agentguard-extensions"
+  "chitinhq/preflight"
+  "chitinhq/homebrew-tap"
+  "chitinhq/agentguard-workspace"
 )
 
 # Labels that protect an issue from being closed

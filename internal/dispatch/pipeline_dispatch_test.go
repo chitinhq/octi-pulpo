@@ -3,7 +3,7 @@ package dispatch
 import (
 	"testing"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
 )
 
 func TestPipelineRoute(t *testing.T) {

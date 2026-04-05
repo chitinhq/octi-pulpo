@@ -92,7 +92,7 @@ func TestCopilotAdapterDispatch(t *testing.T) {
 	task := &Task{
 		ID:       "task-123",
 		Type:     "code-gen",
-		Repo:     "AgentGuardHQ/octi-pulpo",
+		Repo:     "chitinhq/octi-pulpo",
 		Prompt:   "Write a function to calculate factorial",
 		Toolset:  []string{"read_file", "write_file"},
 		Priority: "normal",

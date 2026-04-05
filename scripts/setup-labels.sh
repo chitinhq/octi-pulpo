@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# setup-labels.sh — Create pipeline stage labels across all AgentGuardHQ repos.
+# setup-labels.sh — Create pipeline stage labels across all chitinhq repos.
 # Usage: bash scripts/setup-labels.sh [repo...]
-# Default: all AgentGuardHQ repos
+# Default: all chitinhq repos
 set -euo pipefail
 
 LABELS=(
@@ -16,14 +16,14 @@ LABELS=(
 if [ $# -gt 0 ]; then
   REPOS="$*"
 else
-  REPOS=$(gh repo list AgentGuardHQ --json name -q '.[].name')
+  REPOS=$(gh repo list chitinhq --json name -q '.[].name')
 fi
 
 for repo in $REPOS; do
-  echo "=== AgentGuardHQ/$repo ==="
+  echo "=== chitinhq/$repo ==="
   for entry in "${LABELS[@]}"; do
     IFS='|' read -r name color desc <<< "$entry"
-    if gh label create "$name" --repo "AgentGuardHQ/$repo" --color "$color" --description "$desc" 2>/dev/null; then
+    if gh label create "$name" --repo "chitinhq/$repo" --color "$color" --description "$desc" 2>/dev/null; then
       echo "  created: $name"
     else
       echo "  exists:  $name"

@@ -27,7 +27,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/cron"
+	"github.com/chitinhq/octi-pulpo/internal/cron"
 )
 
 // scheduleFile is the parsed schedule.json

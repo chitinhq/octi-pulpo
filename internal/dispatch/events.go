@@ -28,7 +28,7 @@ const (
 type Event struct {
 	Type     EventType         `json:"type"`
 	Source   string            `json:"source"`   // "github", "cron", "slack", "manual"
-	Repo     string            `json:"repo"`     // "AgentGuardHQ/agentguard"
+	Repo     string            `json:"repo"`     // "chitinhq/agentguard"
 	Payload  map[string]string `json:"payload"`  // event-specific data
 	Priority int               `json:"priority"` // 0=critical, 1=high, 2=normal, 3=background
 }
@@ -36,7 +36,7 @@ type Event struct {
 // EventRule maps an event pattern to an agent that should handle it.
 type EventRule struct {
 	EventType EventType     // which event triggers this rule
-	RepoMatch string        // glob pattern, e.g. "AgentGuardHQ/*"
+	RepoMatch string        // glob pattern, e.g. "chitinhq/*"
 	AgentName string        // agent to dispatch
 	Priority  int           // default priority for this rule
 	Cooldown  time.Duration // minimum time between dispatches for same agent
@@ -89,42 +89,42 @@ func DefaultRules() []EventRule {
 		// PR review agents (triggered by PR events)
 		{
 			EventType: EventPROpened,
-			RepoMatch: "AgentGuardHQ/agentguard",
+			RepoMatch: "chitinhq/agentguard",
 			AgentName: "workspace-pr-review-agent",
 			Priority:  1,
 			Cooldown:  5 * time.Minute,
 		},
 		{
 			EventType: EventPRUpdated,
-			RepoMatch: "AgentGuardHQ/agentguard",
+			RepoMatch: "chitinhq/agentguard",
 			AgentName: "workspace-pr-review-agent",
 			Priority:  1,
 			Cooldown:  5 * time.Minute,
 		},
 		{
 			EventType: EventPROpened,
-			RepoMatch: "AgentGuardHQ/agentguard-cloud",
+			RepoMatch: "chitinhq/agentguard-cloud",
 			AgentName: "code-review-agent-cloud",
 			Priority:  1,
 			Cooldown:  5 * time.Minute,
 		},
 		{
 			EventType: EventPRUpdated,
-			RepoMatch: "AgentGuardHQ/agentguard-cloud",
+			RepoMatch: "chitinhq/agentguard-cloud",
 			AgentName: "code-review-agent-cloud",
 			Priority:  1,
 			Cooldown:  5 * time.Minute,
 		},
 		{
 			EventType: EventPROpened,
-			RepoMatch: "AgentGuardHQ/agentguard-analytics",
+			RepoMatch: "chitinhq/agentguard-analytics",
 			AgentName: "analytics-pr-review-agent",
 			Priority:  1,
 			Cooldown:  5 * time.Minute,
 		},
 		{
 			EventType: EventPROpened,
-			RepoMatch: "AgentGuardHQ/agentguard-workspace",
+			RepoMatch: "chitinhq/agentguard-workspace",
 			AgentName: "workspace-pr-review-agent",
 			Priority:  1,
 			Cooldown:  5 * time.Minute,
@@ -133,28 +133,28 @@ func DefaultRules() []EventRule {
 		// PR merger agents (triggered by CI completion)
 		{
 			EventType: EventCICompleted,
-			RepoMatch: "AgentGuardHQ/agentguard",
+			RepoMatch: "chitinhq/agentguard",
 			AgentName: "pr-merger-agent",
 			Priority:  2,
 			Cooldown:  10 * time.Minute, // prevents stampede (was 214 runs/day)
 		},
 		{
 			EventType: EventCICompleted,
-			RepoMatch: "AgentGuardHQ/agentguard-cloud",
+			RepoMatch: "chitinhq/agentguard-cloud",
 			AgentName: "pr-merger-agent-cloud",
 			Priority:  2,
 			Cooldown:  10 * time.Minute,
 		},
 		{
 			EventType: EventCICompleted,
-			RepoMatch: "AgentGuardHQ/agentguard-analytics",
+			RepoMatch: "chitinhq/agentguard-analytics",
 			AgentName: "analytics-pr-review-agent",
 			Priority:  2,
 			Cooldown:  10 * time.Minute,
 		},
 		{
 			EventType: EventCICompleted,
-			RepoMatch: "AgentGuardHQ/agentguard-workspace",
+			RepoMatch: "chitinhq/agentguard-workspace",
 			AgentName: "pr-merger-agent",
 			Priority:  2,
 			Cooldown:  10 * time.Minute,

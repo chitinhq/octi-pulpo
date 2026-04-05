@@ -52,17 +52,17 @@ func TestStore_UpdateStatus(t *testing.T) {
 	item := SprintItem{
 		Squad:    "kernel",
 		IssueNum: 42,
-		Repo:     "AgentGuardHQ/agentguard",
+		Repo:     "chitinhq/agentguard",
 		Title:    "Fix bug",
 		Priority: 0,
 		Status:   "open",
 	}
 	data, _ := json.Marshal(item)
-	s.rdb.Set(ctx, s.itemKey("AgentGuardHQ/agentguard", 42), data, 0)
-	s.rdb.SAdd(ctx, s.key("sprint-repos"), "AgentGuardHQ/agentguard")
+	s.rdb.Set(ctx, s.itemKey("chitinhq/agentguard", 42), data, 0)
+	s.rdb.SAdd(ctx, s.key("sprint-repos"), "chitinhq/agentguard")
 
 	// Update status
-	err := s.UpdateStatus(ctx, "AgentGuardHQ/agentguard", 42, "in_progress")
+	err := s.UpdateStatus(ctx, "chitinhq/agentguard", 42, "in_progress")
 	if err != nil {
 		t.Fatalf("update status: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestStore_UpdateStatus(t *testing.T) {
 func TestStore_NextDispatchable(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/agentguard"
+	repo := "chitinhq/agentguard"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	// Seed items: one open with no deps, one open with unmet dep, one done
@@ -118,8 +118,8 @@ func TestStore_NextDispatchable(t *testing.T) {
 func TestStore_GetBySquad(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo1 := "AgentGuardHQ/agentguard"
-	repo2 := "AgentGuardHQ/octi-pulpo"
+	repo1 := "chitinhq/agentguard"
+	repo2 := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo1, repo2)
 
 	items := []SprintItem{
@@ -176,7 +176,7 @@ func TestParseIssueRefs(t *testing.T) {
 func TestStore_NextDispatchable_SkipsPROpen(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	items := []SprintItem{
@@ -205,7 +205,7 @@ func TestStore_NextDispatchable_SkipsPROpen(t *testing.T) {
 func TestStore_NextMergeable(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	items := []SprintItem{
@@ -243,7 +243,7 @@ func TestStore_NextMergeable(t *testing.T) {
 func TestStore_NextMergeable_Empty(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	items := []SprintItem{
@@ -266,7 +266,7 @@ func TestStore_NextMergeable_Empty(t *testing.T) {
 func TestStore_SyncPRs_PreservesNonOpen(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	// Seed items: one claimed, one done — SyncPRs must not override either
@@ -314,7 +314,7 @@ func TestStore_SyncPRs_PreservesNonOpen(t *testing.T) {
 
 func TestMarkClosedItems_MarksOpenAndPROpen(t *testing.T) {
 	s, ctx := testStore(t)
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	items := []SprintItem{
@@ -352,7 +352,7 @@ func TestMarkClosedItems_MarksOpenAndPROpen(t *testing.T) {
 
 func TestMarkClosedItems_SkipsUntracked(t *testing.T) {
 	s, ctx := testStore(t)
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 
 	// Sprint store has no items for this repo
 	marked := s.markClosedItems(ctx, repo, []int{1, 2, 3})
@@ -363,7 +363,7 @@ func TestMarkClosedItems_SkipsUntracked(t *testing.T) {
 
 func TestMarkClosedItems_EmptyList(t *testing.T) {
 	s, ctx := testStore(t)
-	marked := s.markClosedItems(ctx, "AgentGuardHQ/octi-pulpo", []int{})
+	marked := s.markClosedItems(ctx, "chitinhq/octi-pulpo", []int{})
 	if marked != 0 {
 		t.Fatalf("expected 0 for empty list, got %d", marked)
 	}
@@ -372,7 +372,7 @@ func TestMarkClosedItems_EmptyList(t *testing.T) {
 func TestStore_Reprioritize(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	item := SprintItem{
@@ -398,7 +398,7 @@ func TestStore_Reprioritize(t *testing.T) {
 func TestStore_Reprioritize_NotFound(t *testing.T) {
 	s, ctx := testStore(t)
 
-	err := s.Reprioritize(ctx, "AgentGuardHQ/octi-pulpo", 9999, 0)
+	err := s.Reprioritize(ctx, "chitinhq/octi-pulpo", 9999, 0)
 	if err == nil {
 		t.Fatal("expected error for missing item, got nil")
 	}
@@ -407,7 +407,7 @@ func TestStore_Reprioritize_NotFound(t *testing.T) {
 func TestStore_Complete_NoDepedents(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	item := SprintItem{
@@ -434,7 +434,7 @@ func TestStore_Complete_NoDepedents(t *testing.T) {
 func TestStore_Complete_UnblocksDependent(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	// Item 10: the blocker; item 20: depends on 10; item 30: depends on 10 AND 40 (not done)
@@ -467,7 +467,7 @@ func TestStore_Create_Basic(t *testing.T) {
 	s, ctx := testStore(t)
 
 	item := SprintItem{
-		Repo:     "AgentGuardHQ/octi-pulpo",
+		Repo:     "chitinhq/octi-pulpo",
 		IssueNum: 99,
 		Title:    "Manual sprint item",
 		Priority: 1,
@@ -508,7 +508,7 @@ func TestStore_Create_WithDependencies(t *testing.T) {
 	s, ctx := testStore(t)
 
 	item := SprintItem{
-		Repo:      "AgentGuardHQ/agentguard",
+		Repo:      "chitinhq/agentguard",
 		IssueNum:  50,
 		Title:     "Feature with deps",
 		Priority:  0,
@@ -539,7 +539,7 @@ func TestStore_Create_WithDependencies(t *testing.T) {
 func TestStore_Create_ReplacesExisting(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	original := SprintItem{
 		Repo: repo, IssueNum: 10, Title: "Old title", Priority: 2, Status: "open",
 	}
@@ -574,8 +574,8 @@ func TestStore_Create_ValidationErrors(t *testing.T) {
 		item SprintItem
 	}{
 		{"missing repo", SprintItem{IssueNum: 1, Title: "t"}},
-		{"missing issue_num", SprintItem{Repo: "AgentGuardHQ/octi-pulpo", Title: "t"}},
-		{"missing title", SprintItem{Repo: "AgentGuardHQ/octi-pulpo", IssueNum: 1}},
+		{"missing issue_num", SprintItem{Repo: "chitinhq/octi-pulpo", Title: "t"}},
+		{"missing title", SprintItem{Repo: "chitinhq/octi-pulpo", IssueNum: 1}},
 	}
 
 	for _, tc := range cases {
@@ -592,7 +592,7 @@ func TestStore_Create_DispatchableAfterCreate(t *testing.T) {
 
 	// Create a P0 item with no deps — should appear in NextDispatchable
 	item := SprintItem{
-		Repo:     "AgentGuardHQ/shellforge",
+		Repo:     "chitinhq/shellforge",
 		IssueNum: 77,
 		Title:    "Critical fix",
 		Priority: 0,
@@ -618,11 +618,11 @@ func TestInferSquadFromRepo(t *testing.T) {
 		repo  string
 		squad string
 	}{
-		{"AgentGuardHQ/agentguard", "kernel"},
-		{"AgentGuardHQ/agentguard-cloud", "cloud"},
-		{"AgentGuardHQ/octi-pulpo", "octi-pulpo"},
-		{"AgentGuardHQ/shellforge", "shellforge"},
-		{"AgentGuardHQ/agentguard-analytics", "analytics"},
+		{"chitinhq/agentguard", "kernel"},
+		{"chitinhq/agentguard-cloud", "cloud"},
+		{"chitinhq/octi-pulpo", "octi-pulpo"},
+		{"chitinhq/shellforge", "shellforge"},
+		{"chitinhq/agentguard-analytics", "analytics"},
 	}
 
 	for _, tc := range tests {
@@ -639,7 +639,7 @@ func TestInferSquadFromRepo(t *testing.T) {
 func TestTombstoneFromOpenSet_MarksStaleItems(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	items := []SprintItem{
@@ -687,7 +687,7 @@ func TestTombstoneFromOpenSet_MarksStaleItems(t *testing.T) {
 func TestTombstoneFromOpenSet_SkipsInProgressAndClaimed(t *testing.T) {
 	s, ctx := testStore(t)
 
-	repo := "AgentGuardHQ/octi-pulpo"
+	repo := "chitinhq/octi-pulpo"
 	s.rdb.SAdd(ctx, s.key("sprint-repos"), repo)
 
 	items := []SprintItem{
@@ -720,5 +720,5 @@ func TestTombstoneFromOpenSet_SkipsInProgressAndClaimed(t *testing.T) {
 func TestTombstoneFromOpenSet_EmptyStore(t *testing.T) {
 	s, ctx := testStore(t)
 	// No panic, no error when store has no items.
-	s.tombstoneFromOpenSet(ctx, "AgentGuardHQ/octi-pulpo", map[int]bool{1: true, 2: true})
+	s.tombstoneFromOpenSet(ctx, "chitinhq/octi-pulpo", map[int]bool{1: true, 2: true})
 }

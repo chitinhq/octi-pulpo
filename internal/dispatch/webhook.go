@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/chitinhq/octi-pulpo/internal/budget"
+	"github.com/chitinhq/octi-pulpo/internal/memory"
+	"github.com/chitinhq/octi-pulpo/internal/sprint"
 )
 
 // WebhookServer is a lightweight HTTP server for receiving GitHub webhooks
@@ -423,7 +423,7 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	// Strategy cascade: when roadmap.md or strategy/ changes are pushed to
 	// agentguard-workspace, diff roadmap against managed issues and sync.
 	if event.Type == EventPush && ws.cascadeHandler != nil {
-		if repo == "AgentGuardHQ/agentguard-workspace" && event.Payload["touches_roadmap"] == "true" {
+		if repo == "chitinhq/agentguard-workspace" && event.Payload["touches_roadmap"] == "true" {
 			go func() {
 				result, err := ws.cascadeHandler.HandlePush(context.Background())
 				if err != nil {

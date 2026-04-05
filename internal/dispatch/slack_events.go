@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
+	"github.com/chitinhq/octi-pulpo/internal/budget"
+	"github.com/chitinhq/octi-pulpo/internal/sprint"
 )
 
 // slackEventEnvelope is the outer Slack Events API payload.

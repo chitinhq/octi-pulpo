@@ -34,7 +34,7 @@ jobs:
           echo "Priority:  ${TASK_PRIORITY}"
 
           # Download the latest Clawta release binary.
-          gh release download --repo AgentGuardHQ/clawta \
+          gh release download --repo chitinhq/clawta \
             --pattern "clawta-linux-amd64" \
             --output clawta \
             --clobber || echo "WARN: clawta release not yet published — skipping binary download"

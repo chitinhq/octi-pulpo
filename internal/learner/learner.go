@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/memory"
+	"github.com/chitinhq/octi-pulpo/internal/memory"
 )
 
 // TaskInfo is the minimal task data needed for learning (avoids import cycle with dispatch).

@@ -46,11 +46,11 @@ type CascadeHandler struct {
 
 // DefaultCascadeRepos is the list of repos the cascade handler manages.
 var DefaultCascadeRepos = []string{
-	"AgentGuardHQ/agentguard-cloud",
-	"AgentGuardHQ/agentguard",
-	"AgentGuardHQ/octi-pulpo",
-	"AgentGuardHQ/shellforge",
-	"AgentGuardHQ/agentguard-analytics",
+	"chitinhq/agentguard-cloud",
+	"chitinhq/agentguard",
+	"chitinhq/octi-pulpo",
+	"chitinhq/shellforge",
+	"chitinhq/agentguard-analytics",
 }
 
 // NewCascadeHandler creates a cascade handler. Reads tokens from env if empty.
@@ -148,7 +148,7 @@ type managedIssue struct {
 
 func (ch *CascadeHandler) fetchRoadmap(ctx context.Context) (string, error) {
 	// Try roadmap.md first, then strategy/ directory
-	url := "https://api.github.com/repos/AgentGuardHQ/agentguard-workspace/contents/roadmap.md"
+	url := "https://api.github.com/repos/chitinhq/agentguard-workspace/contents/roadmap.md"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -164,7 +164,7 @@ func (ch *CascadeHandler) fetchRoadmap(ctx context.Context) (string, error) {
 
 	if resp.StatusCode == http.StatusNotFound {
 		// Fallback: try strategy/roadmap.md
-		return ch.fetchFile(ctx, "AgentGuardHQ/agentguard-workspace", "strategy/roadmap.md")
+		return ch.fetchFile(ctx, "chitinhq/agentguard-workspace", "strategy/roadmap.md")
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -320,9 +320,9 @@ Rules:
 Respond with ONLY a JSON object:
 {
   "actions": [
-    {"type": "create", "repo": "AgentGuardHQ/...", "title": "...", "body": "...", "labels": ["priority:P0", "cascade:managed", "triage:needed"]},
-    {"type": "close", "repo": "AgentGuardHQ/...", "issue_number": 123, "reason": "..."},
-    {"type": "relabel", "repo": "AgentGuardHQ/...", "issue_number": 123, "labels": ["priority:P0", "cascade:managed"]}
+    {"type": "create", "repo": "chitinhq/...", "title": "...", "body": "...", "labels": ["priority:P0", "cascade:managed", "triage:needed"]},
+    {"type": "close", "repo": "chitinhq/...", "issue_number": 123, "reason": "..."},
+    {"type": "relabel", "repo": "chitinhq/...", "issue_number": 123, "labels": ["priority:P0", "cascade:managed"]}
   ]
 }
 

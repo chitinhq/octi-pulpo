@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/admission"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/org"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/sprint"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/standup"
+	"github.com/chitinhq/octi-pulpo/internal/admission"
+	"github.com/chitinhq/octi-pulpo/internal/budget"
+	"github.com/chitinhq/octi-pulpo/internal/dispatch"
+	"github.com/chitinhq/octi-pulpo/internal/org"
+	"github.com/chitinhq/octi-pulpo/internal/sprint"
+	"github.com/chitinhq/octi-pulpo/internal/standup"
 	"github.com/redis/go-redis/v9"
 )
 

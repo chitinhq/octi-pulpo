@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/pipeline"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/pipeline"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
+	"github.com/chitinhq/octi-pulpo/internal/budget"
 )
 
 // pipelineAgents are the agent names used by Claude API handlers.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/admission"
+	"github.com/chitinhq/octi-pulpo/internal/admission"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -45,7 +45,7 @@ func TestScore_Accept(t *testing.T) {
 	score := g.Score(ctx, admission.TaskSpec{
 		Title:        "Fix nil pointer in handler",
 		Squad:        "kernel",
-		Repo:         "AgentGuardHQ/agentguard",
+		Repo:         "chitinhq/agentguard",
 		FilePaths:    []string{"internal/handler/handler.go"},
 		Priority:     1,
 		IsReversible: true,
@@ -65,7 +65,7 @@ func TestScore_LowClarity_Preflight(t *testing.T) {
 	score := g.Score(ctx, admission.TaskSpec{
 		Title:       "Do the thing",
 		Squad:       "kernel",
-		Repo:        "AgentGuardHQ/agentguard",
+		Repo:        "chitinhq/agentguard",
 		SpecClarity: 0.3,
 		Priority:    2,
 	})
@@ -84,7 +84,7 @@ func TestScore_LargeBlast_Defer(t *testing.T) {
 	score := g.Score(ctx, admission.TaskSpec{
 		Title:        "Partial refactor",
 		Squad:        "kernel",
-		Repo:         "AgentGuardHQ/agentguard",
+		Repo:         "chitinhq/agentguard",
 		FilePaths:    files,
 		Priority:     2,
 		IsReversible: true,
@@ -106,7 +106,7 @@ func TestScore_HugeBlast_Reject(t *testing.T) {
 	score := g.Score(ctx, admission.TaskSpec{
 		Title:        "Big bang refactor",
 		Squad:        "kernel",
-		Repo:         "AgentGuardHQ/agentguard",
+		Repo:         "chitinhq/agentguard",
 		FilePaths:    files,
 		Priority:     3,
 		IsReversible: false,
@@ -129,7 +129,7 @@ func TestScore_AllPenalties_Reject(t *testing.T) {
 	score := g.Score(ctx, admission.TaskSpec{
 		Title:           "Everything everywhere all at once",
 		Squad:           "kernel",
-		Repo:            "AgentGuardHQ/agentguard",
+		Repo:            "chitinhq/agentguard",
 		FilePaths:       files,
 		Priority:        3,
 		IsReversible:    false,

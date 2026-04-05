@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
+	"github.com/chitinhq/octi-pulpo/internal/budget"
 )
 
 // PlannerResult is the outcome of scoping a vague issue.

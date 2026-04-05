@@ -1,7 +1,7 @@
 package dispatch
 
 import (
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
 )
 
 // PipelineRouter selects the best driver for a pipeline stage based on

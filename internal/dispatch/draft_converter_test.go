@@ -163,7 +163,7 @@ func TestConvertToReady(t *testing.T) {
 
 	dc := newTestDraftConverter(srv.URL, "test-token")
 
-	result, err := dc.ConvertToReady(context.Background(), "AgentGuardHQ/octi-pulpo", 42)
+	result, err := dc.ConvertToReady(context.Background(), "chitinhq/octi-pulpo", 42)
 	if err != nil {
 		t.Fatalf("ConvertToReady returned error: %v", err)
 	}
@@ -183,8 +183,8 @@ func TestConvertToReady(t *testing.T) {
 	if method != http.MethodPatch {
 		t.Errorf("method = %s, want PATCH", method)
 	}
-	if path != "/repos/AgentGuardHQ/octi-pulpo/pulls/42" {
-		t.Errorf("path = %s, want /repos/AgentGuardHQ/octi-pulpo/pulls/42", path)
+	if path != "/repos/chitinhq/octi-pulpo/pulls/42" {
+		t.Errorf("path = %s, want /repos/chitinhq/octi-pulpo/pulls/42", path)
 	}
 	draftVal, ok := body["draft"].(bool)
 	if !ok || draftVal != false {
@@ -202,7 +202,7 @@ func TestConvertToReadyAPIError(t *testing.T) {
 
 	dc := newTestDraftConverter(srv.URL, "test-token")
 
-	_, err := dc.ConvertToReady(context.Background(), "AgentGuardHQ/octi-pulpo", 99)
+	_, err := dc.ConvertToReady(context.Background(), "chitinhq/octi-pulpo", 99)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -214,7 +214,7 @@ func TestConvertToReadyNoToken(t *testing.T) {
 	// Unset any env-provided token to ensure the empty path is exercised.
 	dc.ghToken = ""
 
-	_, err := dc.ConvertToReady(context.Background(), "AgentGuardHQ/octi-pulpo", 1)
+	_, err := dc.ConvertToReady(context.Background(), "chitinhq/octi-pulpo", 1)
 	if err == nil {
 		t.Fatal("expected error for missing token, got nil")
 	}
@@ -222,7 +222,7 @@ func TestConvertToReadyNoToken(t *testing.T) {
 
 // TestSkipResult verifies the skip helper builds the right struct.
 func TestSkipResult(t *testing.T) {
-	r := SkipResult("AgentGuardHQ/octi-pulpo", 7, "not a copilot PR")
+	r := SkipResult("chitinhq/octi-pulpo", 7, "not a copilot PR")
 	if !r.Skipped {
 		t.Error("expected Skipped=true")
 	}

@@ -83,7 +83,7 @@ func TestNotifier_PostPRReadyAlert(t *testing.T) {
 	ctx := context.Background()
 	n := NewNotifier(srv.URL)
 
-	if err := n.PostPRReadyAlert(ctx, "AgentGuardHQ/octi-pulpo", 42, "feat: my change"); err != nil {
+	if err := n.PostPRReadyAlert(ctx, "chitinhq/octi-pulpo", 42, "feat: my change"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -252,7 +252,7 @@ func TestWebhookServer_SlackActions_NoSignatureCheck_WhenSecretEmpty(t *testing.
 	ws := NewWebhookServer(d, "")
 	// No signing secret set — should accept any request (useful for local dev)
 
-	body := makeSlackPayload("skip_pr", "AgentGuardHQ/octi-pulpo/42", "jared")
+	body := makeSlackPayload("skip_pr", "chitinhq/octi-pulpo/42", "jared")
 	req := httptest.NewRequest(http.MethodPost, "/slack/actions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()

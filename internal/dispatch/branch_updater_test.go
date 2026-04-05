@@ -78,7 +78,7 @@ func TestHandlePush_UpdatesBehindPRs(t *testing.T) {
 
 	bu := newTestBranchUpdater(srv.URL, "test-token")
 
-	results, err := bu.HandlePush(context.Background(), "AgentGuardHQ/octi-pulpo", "main")
+	results, err := bu.HandlePush(context.Background(), "chitinhq/octi-pulpo", "main")
 	if err != nil {
 		t.Fatalf("HandlePush: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestHandlePush_NoPRs(t *testing.T) {
 
 	bu := newTestBranchUpdater(srv.URL, "test-token")
 
-	results, err := bu.HandlePush(context.Background(), "AgentGuardHQ/octi-pulpo", "main")
+	results, err := bu.HandlePush(context.Background(), "chitinhq/octi-pulpo", "main")
 	if err != nil {
 		t.Fatalf("HandlePush: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestHandlePush_NoTokenReturnsError(t *testing.T) {
 	bu := NewBranchUpdater("")
 	bu.ghToken = ""
 
-	_, err := bu.HandlePush(context.Background(), "AgentGuardHQ/octi-pulpo", "main")
+	_, err := bu.HandlePush(context.Background(), "chitinhq/octi-pulpo", "main")
 	if err == nil {
 		t.Fatal("expected error for missing token, got nil")
 	}
@@ -146,7 +146,7 @@ func TestHandlePush_APIErrorOnListPRs(t *testing.T) {
 
 	bu := newTestBranchUpdater(srv.URL, "test-token")
 
-	_, err := bu.HandlePush(context.Background(), "AgentGuardHQ/octi-pulpo", "main")
+	_, err := bu.HandlePush(context.Background(), "chitinhq/octi-pulpo", "main")
 	if err == nil {
 		t.Fatal("expected error on API failure, got nil")
 	}
@@ -181,7 +181,7 @@ func TestHandlePush_CompareErrorSkipsPR(t *testing.T) {
 
 	bu := newTestBranchUpdater(srv.URL, "test-token")
 
-	results, err := bu.HandlePush(context.Background(), "AgentGuardHQ/octi-pulpo", "main")
+	results, err := bu.HandlePush(context.Background(), "chitinhq/octi-pulpo", "main")
 	if err != nil {
 		t.Fatalf("HandlePush: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestHandlePush_UpdateBranchErrorSkipsPR(t *testing.T) {
 
 	bu := newTestBranchUpdater(srv.URL, "test-token")
 
-	results, err := bu.HandlePush(context.Background(), "AgentGuardHQ/octi-pulpo", "main")
+	results, err := bu.HandlePush(context.Background(), "chitinhq/octi-pulpo", "main")
 	if err != nil {
 		t.Fatalf("HandlePush: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/budget"
+	"github.com/chitinhq/octi-pulpo/internal/budget"
 )
 
 // CodingResult is the outcome of implementing a fix for an escalated PR.

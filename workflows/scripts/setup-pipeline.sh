@@ -12,9 +12,9 @@ set -euo pipefail
 #   --dry-run        Show what would be done without making changes
 #
 # Examples:
-#   setup-pipeline.sh AgentGuardHQ/agentguard-cloud
+#   setup-pipeline.sh chitinhq/agentguard-cloud
 #   setup-pipeline.sh myorg/frontend --prefix amd
-#   setup-pipeline.sh AgentGuardHQ/octi-pulpo --lang go
+#   setup-pipeline.sh chitinhq/octi-pulpo --lang go
 #   setup-pipeline.sh myorg/frontend --prefix amd --dry-run
 #
 # Prerequisites:

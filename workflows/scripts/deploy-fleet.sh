@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Octi Pulpo pipeline to all AgentGuardHQ repos.
+# Deploy Octi Pulpo pipeline to all chitinhq repos.
 # Usage: deploy-fleet.sh [--dry-run]
 set -euo pipefail
 
@@ -12,7 +12,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: deploy-fleet.sh [--dry-run]"
       echo ""
-      echo "Deploys Octi Pulpo pipeline to all AgentGuardHQ repos by calling"
+      echo "Deploys Octi Pulpo pipeline to all chitinhq repos by calling"
       echo "setup-pipeline.sh for each repo with the appropriate --lang flag."
       echo ""
       echo "Options:"
@@ -27,18 +27,18 @@ done
 # ── Target repos ────────────────────────────────────────────────
 # Format: repo|default_branch|language
 FLEET=(
-  "AgentGuardHQ/agentguard|main|go"
-  "AgentGuardHQ/octi-pulpo|main|go"
-  "AgentGuardHQ/shellforge|main|go"
-  "AgentGuardHQ/clawta|main|go"
-  "AgentGuardHQ/sentinel|main|go"
-  "AgentGuardHQ/llmint|main|go"
-  "AgentGuardHQ/agentguard-analytics|main|python"
-  "AgentGuardHQ/agentguard-cloud|main|typescript"
-  "AgentGuardHQ/agentguard-workspace|master|docs"
-  "AgentGuardHQ/agentguard-extensions|master|mixed"
-  "AgentGuardHQ/preflight|master|go"
-  "AgentGuardHQ/homebrew-tap|main|ruby"
+  "chitinhq/agentguard|main|go"
+  "chitinhq/octi-pulpo|main|go"
+  "chitinhq/shellforge|main|go"
+  "chitinhq/clawta|main|go"
+  "chitinhq/sentinel|main|go"
+  "chitinhq/llmint|main|go"
+  "chitinhq/agentguard-analytics|main|python"
+  "chitinhq/agentguard-cloud|main|typescript"
+  "chitinhq/agentguard-workspace|master|docs"
+  "chitinhq/agentguard-extensions|master|mixed"
+  "chitinhq/preflight|master|go"
+  "chitinhq/homebrew-tap|main|ruby"
 )
 
 # ── Track results ───────────────────────────────────────────────

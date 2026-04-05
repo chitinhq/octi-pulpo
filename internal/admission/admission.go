@@ -35,7 +35,7 @@ type TaskSpec struct {
 	Title string `json:"title"`
 	// Squad is the owning squad (e.g. "kernel", "octi-pulpo").
 	Squad string `json:"squad"`
-	// Repo is the target repository (e.g. "AgentGuardHQ/agentguard").
+	// Repo is the target repository (e.g. "chitinhq/agentguard").
 	Repo string `json:"repo"`
 	// FilePaths lists files this task will touch (used for blast-radius scoring).
 	FilePaths []string `json:"file_paths,omitempty"`

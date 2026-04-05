@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
 )
 
 // newTestServer creates a minimal Server with only a router wired (no Redis).

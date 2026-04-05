@@ -31,9 +31,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/coordination"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/dispatch"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/coordination"
+	"github.com/chitinhq/octi-pulpo/internal/dispatch"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
 	"github.com/redis/go-redis/v9"
 )
 

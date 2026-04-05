@@ -221,7 +221,7 @@ func TestClawtaAdapterDispatchFailsGracefully(t *testing.T) {
 	task := &Task{
 		ID:     "test-task-001",
 		Type:   "code-gen",
-		Repo:   "AgentGuardHQ/octi-pulpo",
+		Repo:   "chitinhq/octi-pulpo",
 		Prompt: "Add a hello world function",
 	}
 

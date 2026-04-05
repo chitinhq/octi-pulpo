@@ -5,12 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AgentGuardHQ/octi-pulpo/internal/pipeline"
-	"github.com/AgentGuardHQ/octi-pulpo/internal/routing"
+	"github.com/chitinhq/octi-pulpo/internal/pipeline"
+	"github.com/chitinhq/octi-pulpo/internal/routing"
 )
 
-// FormatPipelineDashboard builds Slack Block Kit blocks showing pipeline stage
-// depths, session counts, driver budgets, and backpressure status.
+// FormatPipelineDashboard builds Slack Block Kit blocks for a pipeline status dashboard.
 func FormatPipelineDashboard(
 	depths map[pipeline.Stage]int,
 	sessions map[pipeline.Stage]int,
@@ -20,40 +19,49 @@ func FormatPipelineDashboard(
 	now := time.Now().UTC().Format("15:04 UTC")
 	var blocks []map[string]interface{}
 
+	// Header
 	blocks = append(blocks, slackSection(fmt.Sprintf("*Pipeline Status (%s)*", now)))
 
+	// Stage table
 	stages := []pipeline.Stage{
-		pipeline.StageArchitect, pipeline.StageImplement,
-		pipeline.StageQA, pipeline.StageReview, pipeline.StageRelease,
+		pipeline.StageArchitect,
+		pipeline.StageImplement,
+		pipeline.StageQA,
+		pipeline.StageReview,
+		pipeline.StageRelease,
 	}
 
 	var lines []string
 	for _, s := range stages {
 		icon := stageIcon(s, depths[s], bp)
 		name := strings.ToUpper(string(s))
-		lines = append(lines, fmt.Sprintf("%s *%s*: %d queued, %d sessions", icon, name, depths[s], sessions[s]))
+		depth := depths[s]
+		sess := sessions[s]
+		lines = append(lines, fmt.Sprintf("%s *%s*: %d queued, %d sessions", icon, name, depth, sess))
 	}
 	blocks = append(blocks, slackSection(strings.Join(lines, "\n")))
 
+	// Backpressure warning
 	if bp.PauseStage != "" || bp.ThrottleStage != "" {
-		blocks = append(blocks, slackSection(fmt.Sprintf("Warning: *Backpressure:* %s", bp.Reason)))
+		blocks = append(blocks, slackSection(fmt.Sprintf("⚠️ *Backpressure:* %s", bp.Reason)))
 	}
 
+	// Budget summary
 	if len(budgets) > 0 {
 		var budgetLines []string
 		for _, b := range budgets {
-			icon := "G"
+			icon := "🟢"
 			pct := "?"
 			if b.BudgetPct != nil {
 				pct = fmt.Sprintf("%d%%", *b.BudgetPct)
 				if *b.BudgetPct < 20 {
-					icon = "R"
+					icon = "🔴"
 				} else if *b.BudgetPct < 50 {
-					icon = "Y"
+					icon = "🟡"
 				}
 			}
 			if b.CircuitState == "OPEN" {
-				icon = "R"
+				icon = "🔴"
 			}
 			budgetLines = append(budgetLines, fmt.Sprintf("%s *%s*: %s remaining", icon, b.Name, pct))
 		}
@@ -63,13 +71,33 @@ func FormatPipelineDashboard(
 	return blocks
 }
 
+func stageIcon(s pipeline.Stage, depth int, bp pipeline.BackpressureAction) string {
+	if bp.PauseStage == s {
+		return "⏸️"
+	}
+	if bp.ThrottleStage == s {
+		return "🔻"
+	}
+	if depth == 0 {
+		return "⚪"
+	}
+	if depth > 8 {
+		return "🔴"
+	}
+	if depth > 4 {
+		return "🟡"
+	}
+	return "🟢"
+}
+
 // PipelineCommand represents a parsed Slack command for the pipeline.
 type PipelineCommand struct {
-	Action string
-	Args   string
+	Action string // "status", "pause", "resume", "prioritize", "kill"
+	Args   string // free-form arguments (e.g., task description for prioritize)
 }
 
 // ParsePipelineCommand extracts a pipeline command from a Slack message.
+// Returns false if the message is not a pipeline command.
 func ParsePipelineCommand(text string) (PipelineCommand, bool) {
 	text = strings.TrimSpace(strings.ToLower(text))
 
@@ -97,35 +125,22 @@ func ParsePipelineCommand(text string) (PipelineCommand, bool) {
 	}
 }
 
-// FormatBudgetAlert creates a Slack message for low budget warnings.
-func FormatBudgetAlert(driver string, budgetPct int, queuedArchitectTasks int) string {
-	emoji := "Warning"
-	if budgetPct < 10 {
-		emoji = "CRITICAL"
-	}
-
-	msg := fmt.Sprintf("%s *Budget Alert:* %s at %d%% remaining", emoji, driver, budgetPct)
-	if queuedArchitectTasks > 0 {
-		msg += fmt.Sprintf(" — %d architect tasks queued waiting for budget", queuedArchitectTasks)
-	}
-	return msg
-}
-
 // FormatEscalation builds Slack Block Kit blocks for a high-risk PR escalation
 // with approve/reject action buttons.
 func FormatEscalation(repo string, prNumber int, reason string, riskScore int) []map[string]interface{} {
 	var blocks []map[string]interface{}
 
-	level := "Elevated"
+	emoji := "🟡"
 	if riskScore > 60 {
-		level = "CRITICAL"
+		emoji = "🔴"
 	}
 
 	blocks = append(blocks, slackSection(
 		fmt.Sprintf("%s *Escalation: %s#%d*\nRisk score: %d\nReason: %s",
-			level, repo, prNumber, riskScore, reason),
+			emoji, repo, prNumber, riskScore, reason),
 	))
 
+	// Action buttons
 	blocks = append(blocks, map[string]interface{}{
 		"type": "actions",
 		"elements": []map[string]interface{}{
@@ -161,21 +176,26 @@ func FormatEscalation(repo string, prNumber int, reason string, riskScore int) [
 	return blocks
 }
 
-func stageIcon(s pipeline.Stage, depth int, bp pipeline.BackpressureAction) string {
-	if bp.PauseStage == s {
-		return "PAUSED"
+// FormatBudgetAlert creates a Slack message for low budget warnings.
+func FormatBudgetAlert(driver string, budgetPct int, queuedArchitectTasks int) string {
+	emoji := "🟡"
+	if budgetPct < 10 {
+		emoji = "🔴"
 	}
-	if bp.ThrottleStage == s {
-		return "SLOW"
+
+	msg := fmt.Sprintf("%s *Budget Alert:* %s at %d%% remaining", emoji, driver, budgetPct)
+	if queuedArchitectTasks > 0 {
+		msg += fmt.Sprintf(" — %d architect tasks queued waiting for budget", queuedArchitectTasks)
 	}
-	if depth == 0 {
-		return "o"
+	return msg
+}
+
+func slackSection(text string) map[string]interface{} {
+	return map[string]interface{}{
+		"type": "section",
+		"text": map[string]interface{}{
+			"type": "mrkdwn",
+			"text": text,
+		},
 	}
-	if depth > 8 {
-		return "!"
-	}
-	if depth > 4 {
-		return "~"
-	}
-	return "+"
 }

@@ -37,7 +37,7 @@ jobs:
           fi
 
           # Fire repository_dispatch to octi-pulpo
-          gh api repos/AgentGuardHQ/octi-pulpo/dispatches \
+          gh api repos/chitinhq/octi-pulpo/dispatches \
             -f event_type="triage" \
             -f "client_payload[issue_number]=$ISSUE_NUMBER" \
             -f "client_payload[repo]=$SOURCE_REPO"
