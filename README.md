@@ -2,49 +2,97 @@
   <img src="docs/assets/logo.png" alt="Octi Pulpo" width="360">
 </p>
 
-<p align="center">
-Swarm coordination layer for autonomous agent fleets.
-</p>
+# Octi Pulpo
 
-<p align="center">
-  <a href="https://github.com/chitinhq/octi"><img src="https://img.shields.io/badge/Status-Alpha-orange" alt="Alpha"></a>
-  <a href="https://github.com/chitinhq/octi/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
-  <a href="https://pkg.go.dev/github.com/chitinhq/octi"><img src="https://img.shields.io/badge/Go-1.18+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
-</p>
+Coordination scheduler for AI agent swarms on the [Chitin](https://github.com/chitinhq) platform.
+
+Octi Pulpo triages GitHub issues, generates work contracts, dispatches agents
+(Claude Code, Copilot, Codex, humans), enforces budgets, and drives a label
+state machine -- all from a single Go binary backed by Redis.
 
 ---
 
-Running multiple AI agents? They step on each other. Duplicate work. Miss handoffs. Waste budget on the wrong model.
+## Architecture
 
-**Octi Pulpo** is the coordination brain that turns agent chaos into a managed pipeline. It routes work through standardized stages (Architect → Implement → QA → Review → Release), picks the cheapest capable model for each stage, and scales agent sessions dynamically based on queue depth. One binary, sub-millisecond tool responses, zero runtime dependencies beyond Redis.
-
-
-## The Eight Arms
-
-| Arm | Capability | What it does |
-|-----|-----------|--------------|
-| 🧭 | **Model routing** | Route tasks to optimal model by cost, capability, and governance tier |
-| 🧠 | **Shared memory** | Vector DB for accumulated knowledge + Redis for hot state |
-| 🤝 | **Agent coordination** | Who's working on what — assignment dedup, handoffs, claims |
-| 🔄 | **Feedback loops** | Report up (agent → EM → director), get direction down |
-| 🔗 | **Dependency resolution** | Agent A needs agent B's output — wait, notify, unblock |
-| 📚 | **Learning aggregation** | Collective knowledge across runs — denial patterns, workarounds, solutions |
-| 💓 | **Health broadcasting** | Heartbeats, blocks, completions — real-time swarm awareness |
-| 📡 | **Priority signaling** | Push a directive, every agent sees it immediately |
-
-## Quick Start
-
-```bash
-# Build from source
-git clone https://github.com/chitinhq/octi.git
-cd octi
-go build -o octi-pulpo ./cmd/octi-pulpo/
-
-# Run (requires Redis)
-OCTI_REDIS_URL=redis://localhost:6379 ./octi-pulpo
+```mermaid
+flowchart LR
+    A[GitHub Issue] --> B(Triage)
+    B --> C(Admission)
+    C --> D(Contract)
+    D --> E(Route)
+    E --> F(Dispatch)
+    F --> G1[Claude Code]
+    F --> G2[Copilot]
+    F --> G3[GH Actions]
+    F --> G4[Anthropic API]
+    F --> G5[Human]
+    G1 & G2 & G3 & G4 & G5 --> H(Result)
+    H --> I[Label Update / Close]
 ```
 
-Add to any agent via MCP config:
+### Pipeline stages
+
+Every issue moves through a five-stage pipeline with backpressure:
+
+```
+Architect -> Implement -> QA -> Review -> Release
+```
+
+QA can bounce back to Implement; Review can bounce to Implement or Architect.
+
+### Label state machine
+
+```
+(open) -> agent:claimed -> agent:review -> agent:done
+                               |
+                         agent:blocked (escalation)
+```
+
+### Cost-cascade routing
+
+The router picks the cheapest healthy driver for each task:
+
+```
+Local (Ollama) -> GH Actions -> Subscription -> CLI -> API (per-token)
+```
+
+Task affinity rules ensure complex work is not routed below its minimum tier.
+
+## Getting Started
+
+### Prerequisites
+
+- **Go 1.22+** (module: `github.com/chitinhq/octi-pulpo`)
+- **Redis** -- hot state, coordination locks, pub/sub signals
+
+### Build
+
+```bash
+make build            # produces bin/octi-pulpo, bin/octi-worker, bin/octi-timer
+make install          # copies binaries to ~/.agentguard/bin/
+```
+
+Or build directly:
+
+```bash
+go build -o octi-pulpo ./cmd/octi-pulpo/
+```
+
+### Run
+
+**Daemon mode** (webhook server + brain loop + signal watcher):
+
+```bash
+OCTI_HTTP_PORT=8080 OCTI_DAEMON=1 ./bin/octi-pulpo
+```
+
+**MCP mode** (stdio JSON-RPC, for embedding in an agent):
+
+```bash
+OCTI_REDIS_URL=redis://localhost:6379 ./bin/octi-pulpo
+```
+
+Wire into any MCP-compatible agent:
 
 ```json
 {
@@ -57,125 +105,58 @@ Add to any agent via MCP config:
 }
 ```
 
-That's it. Your agent now has access to the full coordination toolkit.
+## Key Packages
 
-## MCP Tools
+| Package | Path | Purpose |
+|---------|------|---------|
+| **dispatch** | `internal/dispatch/` | Issue triage, work contracts, label state, brain loop, adapters (Anthropic, GH Actions, Copilot, Clawta) |
+| **coordination** | `internal/coordination/` | Agent claims, signals, dependency resolution, preflight gates |
+| **routing** | `internal/routing/` | Cost-cascade model router, driver health, circuit breakers |
+| **budget** | `internal/budget/` | Per-agent budget tracking with priority-based thresholds |
+| **pipeline** | `internal/pipeline/` | Five-stage kanban queue, backpressure, dynamic session scaling |
+| **admission** | `internal/admission/` | Intake scoring (ACCEPT/DEFER/REJECT), concurrency gates, domain locks |
+| **sprint** | `internal/sprint/` | Sprint goal store, writeback (Redis) |
+| **memory** | `internal/memory/` | Shared memory store, optional Qdrant vector search |
+| **learner** | `internal/learner/` | Episodic + procedural memory from task outcomes |
+| **mcp** | `internal/mcp/` | MCP stdio JSON-RPC server, tool registration |
 
-Agents interact through standard MCP tools:
+## Configuration
 
-| Tool | Purpose |
-|------|---------|
-| `memory_store` | Save a learning, tagged with agent identity + topic |
-| `memory_recall` | Semantic search across swarm knowledge |
-| `memory_status` | What are other agents working on right now? |
-| `coord_claim` | Claim a task (prevents duplicate work) |
-| `coord_signal` | Broadcast completion / block / need-help |
-| `coord_wait` | Wait for another agent's output |
-| `route_recommend` | Get optimal model for a task type + budget |
-| `dispatch_event` | Submit an event for routing through the dispatcher |
-| `dispatch_trigger` | Manually dispatch a specific agent with optional budget override |
-| `dispatch_status` | Show dispatch queue depth, pending agents, recent decisions |
-| `dispatch_anthropic` | Dispatch a task to the Anthropic API via ShellForge |
-| `dispatch_ghactions` | Dispatch a task via GitHub Actions `repository_dispatch` |
-| `budget_status` | View per-agent budget (spent, limit, paused status) |
-| `budget_set` | Provision or update an agent's monthly budget |
-| `budget_reset` | Zero out spent amount and unpause an agent |
+All configuration is via environment variables.
 
-## Architecture
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OCTI_REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
+| `OCTI_HTTP_PORT` | -- | Enable HTTP webhook server on this port |
+| `OCTI_DAEMON` | `0` | Set to `1` for daemon mode (HTTP only, no MCP stdio) |
+| `OCTI_NAMESPACE` | `octi` | Redis key prefix for multi-tenant isolation |
+| `OCTI_QDRANT_URL` | -- | Qdrant URL for vector memory |
+| `OCTI_EMBEDDINGS_URL` | `https://api.voyageai.com` | Embeddings endpoint (Voyage AI, Ollama, etc.) |
+| `OCTI_EMBEDDINGS_KEY` | -- | Embeddings API key (also reads `VOYAGE_API_KEY`) |
+| `OCTI_EMBEDDINGS_MODEL` | `voyage-3-lite` | Embedding model |
+| `ANTHROPIC_API_KEY` | -- | Required for Anthropic API dispatch and triage |
+| `GITHUB_TOKEN` | -- | GitHub PAT for labeling, commenting, dispatch |
+| `SLACK_SIGNING_SECRET` | -- | Enables Slack Events API handler on `/slack/events` |
+| `SLACK_BOT_TOKEN` | -- | Slack bot token for posting messages |
+| `SLACK_WEBHOOK_URL` | -- | Slack incoming webhook for notifications |
+| `AGENTGUARD_HEALTH_DIR` | `~/.agentguard/driver-health/` | Driver health signal directory |
 
+## Development
+
+```bash
+go build ./...          # compile all packages
+go test ./...           # run tests
+golangci-lint run       # lint
 ```
-┌─────────────────────────────────────────────┐
-│  Agent Swarm                                │
-│  Claude Code · Codex · Copilot · Gemini     │
-└────────────────┬────────────────────────────┘
-                 │ MCP (stdio JSON-RPC)
-┌────────────────▼────────────────────────────┐
-│  Octi Pulpo                                 │
-│  Coordination · Memory · Routing · Signals  │
-│  Budget Gating · Dispatch Adapters          │
-└───┬────────────┬──────────────┬─────────────┘
-    │            │              │
-    ▼            ▼              ▼
- Ollama      GH Actions    Anthropic API
- (free)      (free/ent)    ($50/mo pool)
-    │            │              │
-    │            │        ┌─────▼──────┐
-    │            │        │ ShellForge │
-    │            │        │ (harness)  │
-    │            │        └────────────┘
-    │            │              │
-┌───▼────────────▼──────────────▼─────────────┐
-│  Chitin Gateway                              │
-│  Policy enforcement · Telemetry · Invariants│
-└─────────────────────────────────────────────┘
-         │                   │
-   Redis (hot state)   Vector DB (cold knowledge)
-```
-
-Octi Pulpo is **independent** — it works with any agent swarm, with or without governance. When paired with the [Chitin Gateway](https://github.com/chitinhq/kernel), agents are governed transparently regardless of execution surface.
-
-### Execution Surfaces
-
-The router picks the cheapest capable surface for each task (Ollama → GitHub Actions → Anthropic API):
-
-- **Ollama** — Free local models for triage, classification, and simple tasks
-- **GitHub Actions** — `repository_dispatch` triggers Copilot-powered workflows at zero marginal cost
-- **Anthropic API** — Per-token burst capacity via [ShellForge](https://github.com/chitinhq/shellforge) agent harness, gated by a $50/mo budget pool with priority-based thresholds (CRITICAL 0%, HIGH 15%, NORMAL 30%, BACKGROUND 50%)
 
 ## Part of the Chitin Platform
 
 | Repo | Role |
 |------|------|
-| [Chitin Kernel](https://github.com/chitinhq/kernel) | Governance — policy enforcement, gateway, telemetry, invariants |
-| **Octi Pulpo** | **Coordination — pipeline controller, model routing, dispatch adapters, Slack control plane** |
-| [ShellForge](https://github.com/chitinhq/shellforge) | Execution — agent harness (Ralph Loop, sub-agent orchestration, Anthropic API runner) |
-
-## Stack
-
-- **Go** — Single binary, sub-ms tool responses, zero dependencies
-- **Redis** — Hot state: claims, locks, heartbeats, pub/sub signals
-- **Vector DB** (Qdrant) — Cold knowledge: learnings, patterns, cross-cycle memory
-- **MCP** — Stdio JSON-RPC 2.0 interface, works with any MCP-compatible agent
-
-## Configuration
-
-| Env Variable | Default | Description |
-|-------------|---------|-------------|
-| `OCTI_REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
-| `OCTI_QDRANT_URL` | (disabled) | Qdrant URL for vector memory (e.g. `http://localhost:6333`) |
-| `OCTI_HTTP_PORT` | `8080` | HTTP server port for `/api/dispatch` and `/api/memory` |
-| `OCTI_NAMESPACE` | `octi` | Key prefix for multi-tenant isolation |
-| `ANTHROPIC_API_KEY` | — | Required for Anthropic API dispatch |
-| `VOYAGE_API_KEY` | — | Required for Voyage AI embeddings (used with Qdrant) |
-| `VOYAGE_EMBED_MODEL` | `voyage-3-lite` | Embedding model (`voyage-3-lite` = $0.02/MTok) |
-| `AGENTGUARD_AGENT_NAME` | (auto-detected) | Calling agent identity |
-| `OCTI_HTTP_URL` | — | Set on agent hosts to enable OctiBridge (CLI hook → memory) |
-
-## Roadmap
-
-- [x] MCP server with stdio transport
-- [x] Redis-backed coordination (claims, signals)
-- [x] Shared memory store
-- [x] Budget-aware dispatch (priority queue + adaptive backoff)
-- [x] Model-tier routing (Frontier/Mid/Light/Free)
-- [x] Pipeline controller (5-stage kanban with backpressure)
-- [x] Dynamic session scaling (queue depth → agent count)
-- [x] Slack control plane (dashboard, commands, brief intake, escalation)
-- [x] Admission control (intake scoring, concurrency gates, domain locks)
-- [x] Vector search for memory recall (Qdrant + Voyage AI embeddings)
-- [x] HTTP dispatch endpoint (`/api/dispatch`, `/api/memory`)
-- [x] Model cascading (Haiku→Sonnet→Opus by task complexity)
-- [x] Request dedup + result caching (Redis, type-aware TTLs)
-- [x] Batches API queue (50% discount, async flush)
-- [x] Episodic + procedural memory (learned recipes from episode clusters)
-- [x] OctiBridge: Chitin CLI hooks → Octi Pulpo memory
-- [x] Dispatch adapters (GitHub Actions `repository_dispatch`, Anthropic API via ShellForge)
-- [x] Budget gating ($50/mo pool, priority-based thresholds, per-agent tracking)
-- [x] Cost-cascade router (Ollama → GH Actions → Anthropic API, cheapest-first)
-- [ ] Dependency resolution (Dagu workflow chains)
-- [ ] Health broadcasting with circuit breaker integration
-- [ ] Multi-box coordination protocol
+| [Chitin Kernel](https://github.com/chitinhq/kernel) | Governance -- policy enforcement, gateway, telemetry |
+| **Octi Pulpo** | **Coordination -- scheduler, triage, dispatch, budget, routing** |
+| [ShellForge](https://github.com/chitinhq/shellforge) | Execution -- agent harness, sub-agent orchestration |
 
 ## License
 
-[Apache 2.0](LICENSE) — Use it, fork it, ship it.
+Apache 2.0
