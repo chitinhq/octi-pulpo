@@ -233,9 +233,16 @@ func main() {
 			if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
 				brain.SetGitHubToken(ghToken)
 			}
-			if slackURL := os.Getenv("SLACK_WEBHOOK_URL"); slackURL != "" {
-				brain.SetNotifier(dispatch.NewNotifier(slackURL))
+			// Wire ntfy push notifier for brain alerts (topic: ganglia).
+			ntfyBase := os.Getenv("NTFY_BASE_URL")
+			if ntfyBase == "" {
+				ntfyBase = "https://ntfy.sh"
 			}
+			ntfyTopic := os.Getenv("NTFY_TOPIC")
+			if ntfyTopic == "" {
+				ntfyTopic = "ganglia"
+			}
+			brain.SetNotifier(dispatch.NewNtfyNotifier(ntfyBase, ntfyTopic))
 			// Give the Slack events handler access to the brain for constraint queries.
 			if ws.SlackEvents() != nil {
 				ws.SlackEvents().SetBrain(brain)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/chitinhq/octi-pulpo/internal/budget"
 	"github.com/chitinhq/octi-pulpo/internal/coordination"
+	"github.com/chitinhq/octi-pulpo/internal/presence"
 	"github.com/chitinhq/octi-pulpo/internal/routing"
 	"github.com/redis/go-redis/v9"
 )
@@ -40,9 +41,11 @@ type Dispatcher struct {
 	router    *routing.Router
 	coord     *coordination.Engine
 	events    *EventRouter
-	profiles  *ProfileStore // adaptive cooldowns (nil = use static)
-	budget    *budget.BudgetStore // per-agent budget check (nil = skip)
-	queueFile string              // ~/.chitin/queue.txt (compatibility bridge)
+	profiles  *ProfileStore         // adaptive cooldowns (nil = use static)
+	budget    *budget.BudgetStore   // per-agent budget check (nil = skip)
+	presence  *presence.Store       // user presence for concurrency limits (nil = no limit)
+	presUser  string                // user ID for presence checks
+	queueFile string                // ~/.chitin/queue.txt (compatibility bridge)
 	namespace string
 }
 
@@ -121,6 +124,20 @@ func (d *Dispatcher) DispatchBudget(ctx context.Context, event Event, agentName 
 			result.Reason = "budget exhausted or below priority threshold"
 			d.recordDispatch(ctx, agentName, event, result)
 			return result, nil
+		}
+	}
+
+	// 2.7 Presence-based concurrency: if user is focused, limit concurrent claims to 2.
+	if d.presence != nil && d.presUser != "" {
+		state, _ := d.presence.Get(ctx, d.presUser)
+		if state == presence.Focused {
+			claims, _ := d.coord.ActiveClaims(ctx)
+			if len(claims) >= 2 {
+				result.Action = "skipped"
+				result.Reason = fmt.Sprintf("user focused — %d active claims (max 2)", len(claims))
+				d.recordDispatch(ctx, agentName, event, result)
+				return result, nil
+			}
 		}
 	}
 
@@ -316,6 +333,13 @@ func (d *Dispatcher) SetProfiles(ps *ProfileStore) {
 // SetBudget enables per-agent budget checking in the dispatch pipeline.
 func (d *Dispatcher) SetBudget(b *budget.BudgetStore) {
 	d.budget = b
+}
+
+// SetPresence enables presence-based concurrency limiting. When the user is
+// focused, dispatches are throttled to at most 2 concurrent claims.
+func (d *Dispatcher) SetPresence(ps *presence.Store, user string) {
+	d.presence = ps
+	d.presUser = user
 }
 
 // RedisClient returns the underlying Redis client (for workers that need direct queue access).

@@ -190,12 +190,4 @@ func FormatBudgetAlert(driver string, budgetPct int, queuedArchitectTasks int) s
 	return msg
 }
 
-func slackSection(text string) map[string]interface{} {
-	return map[string]interface{}{
-		"type": "section",
-		"text": map[string]interface{}{
-			"type": "mrkdwn",
-			"text": text,
-		},
-	}
-}
+// slackSection is defined in slack_events.go (shared across the package).

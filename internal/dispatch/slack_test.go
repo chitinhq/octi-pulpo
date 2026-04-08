@@ -314,7 +314,7 @@ func TestBrain_SetNotifier(t *testing.T) {
 	d, _ := testSetup(t)
 	brain := NewBrain(d, DefaultChains())
 
-	n := NewNotifier("") // disabled
+	n := NewNtfyNotifier("", "") // disabled
 	brain.SetNotifier(n)
 
 	if brain.notifier != n {
@@ -325,7 +325,7 @@ func TestBrain_SetNotifier(t *testing.T) {
 func TestBrain_MaybePostDashboard_NoopWhenDisabled(t *testing.T) {
 	d, ctx := testSetup(t)
 	brain := NewBrain(d, DefaultChains())
-	brain.SetNotifier(NewNotifier("")) // disabled
+	brain.SetNotifier(NewNtfyNotifier("", "")) // disabled
 
 	// Should not panic or error even with no-op notifier
 	brain.maybePostDashboard(ctx)
@@ -341,7 +341,7 @@ func TestBrain_MaybeNotifyConstraintChange_EdgeTriggered(t *testing.T) {
 
 	d, ctx := testSetup(t)
 	brain := NewBrain(d, DefaultChains())
-	brain.SetNotifier(NewNotifier(srv.URL))
+	brain.SetNotifier(NewNtfyNotifier(srv.URL, "test-topic"))
 
 	downConstraint := Constraint{Type: "all_drivers_down", Description: "all down", Severity: 0}
 	noneConstraint := Constraint{Type: "none", Description: "healthy", Severity: 2}

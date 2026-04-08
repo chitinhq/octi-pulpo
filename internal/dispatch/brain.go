@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chitinhq/octi-pulpo/internal/coordination"
 	"github.com/chitinhq/octi-pulpo/internal/routing"
 	"github.com/chitinhq/octi-pulpo/internal/sprint"
 	"github.com/chitinhq/octi-pulpo/internal/standup"
@@ -55,7 +56,7 @@ type Brain struct {
 	sprintStore       *sprint.Store
 	standupStore      *standup.Store
 	profiles          *ProfileStore
-	notifier          *Notifier
+	notifier          *NtfyNotifier
 	lastSync          time.Time
 	lastProbe         time.Time
 	lastDashboard     time.Time
@@ -110,8 +111,8 @@ func (b *Brain) SetStandupStore(s *standup.Store) {
 	b.standupStore = s
 }
 
-// SetNotifier enables Slack notifications for driver state changes and periodic dashboards.
-func (b *Brain) SetNotifier(n *Notifier) {
+// SetNotifier enables ntfy push notifications for driver state changes and periodic dashboards.
+func (b *Brain) SetNotifier(n *NtfyNotifier) {
 	b.notifier = n
 }
 
@@ -161,6 +162,9 @@ func (b *Brain) Tick(ctx context.Context) {
 
 	// 6. Self-heal: stuck agents + inactive squads
 	b.maybeSelfHeal(ctx)
+
+	// 6b. Progress gap detection: warn on active claims with no snapshots for >2 min
+	b.checkProgressGaps(ctx)
 
 	// 7. Constraint-driven dispatch (if sprint store is available)
 	if b.sprintStore != nil {
@@ -364,6 +368,36 @@ func (b *Brain) maybeSelfHeal(ctx context.Context) {
 
 	b.checkStuckAgents(ctx)
 	b.checkInactiveSquads(ctx)
+}
+
+// checkProgressGaps scans active claims and warns if any worker has not published
+// a progress snapshot in the last 2 minutes. This detects silently stuck workers.
+func (b *Brain) checkProgressGaps(ctx context.Context) {
+	coord := b.dispatcher.Coord()
+	if coord == nil {
+		return
+	}
+	claims, err := coord.ActiveClaims(ctx)
+	if err != nil {
+		return
+	}
+	rdb := b.dispatcher.RedisClient()
+	ns := b.dispatcher.Namespace()
+	for _, c := range claims {
+		gap, err := coordination.DetectGap(ctx, rdb, ns, c.ClaimID, 2*time.Minute)
+		if err != nil {
+			continue
+		}
+		if gap {
+			// Deduplicate: only log once per claim per 10 min window.
+			key := "progress-gap:" + c.ClaimID
+			if last, ok := b.stuckAgentAlerted[key]; ok && time.Since(last) < 10*time.Minute {
+				continue
+			}
+			b.log.Printf("progress gap: worker %s (claim %s) has no snapshot in >2 min", c.AgentID, c.ClaimID)
+			b.stuckAgentAlerted[key] = time.Now()
+		}
+	}
 }
 
 // checkStuckAgents scans all agent profiles for triage-flagged agents and fires

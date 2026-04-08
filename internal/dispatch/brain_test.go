@@ -68,18 +68,7 @@ func TestFormatChainGraph(t *testing.T) {
 	}
 }
 
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
+// containsString is defined in slack_pipeline_test.go (shared across test files).
 
 // TestBrain_CheckStuckAgents verifies that a triaged agent appears in the
 // stuckAgentAlerted map after checkStuckAgents runs, and is not re-alerted
@@ -89,7 +78,7 @@ func TestBrain_CheckStuckAgents(t *testing.T) {
 	brain := NewBrain(d, DefaultChains())
 
 	// Wire a disabled notifier (no webhook) so Post* calls are no-ops.
-	brain.SetNotifier(NewNotifier(""))
+	brain.SetNotifier(NewNtfyNotifier("", ""))
 
 	ps := NewProfileStore(d.rdb, d.namespace, func(string) time.Duration { return 3 * time.Minute })
 	brain.SetProfileStore(ps)
@@ -125,7 +114,7 @@ func TestBrain_CheckStuckAgents(t *testing.T) {
 func TestBrain_CheckStuckAgents_ClearsOnRecovery(t *testing.T) {
 	d, ctx := testSetup(t)
 	brain := NewBrain(d, DefaultChains())
-	brain.SetNotifier(NewNotifier(""))
+	brain.SetNotifier(NewNtfyNotifier("", ""))
 
 	ps := NewProfileStore(d.rdb, d.namespace, func(string) time.Duration { return 3 * time.Minute })
 	brain.SetProfileStore(ps)
@@ -155,7 +144,7 @@ func TestBrain_CheckStuckAgents_ClearsOnRecovery(t *testing.T) {
 func TestBrain_CheckInactiveSquads(t *testing.T) {
 	d, ctx := testSetup(t)
 	brain := NewBrain(d, DefaultChains())
-	brain.SetNotifier(NewNotifier(""))
+	brain.SetNotifier(NewNtfyNotifier("", ""))
 
 	ps := NewProfileStore(d.rdb, d.namespace, func(string) time.Duration { return 3 * time.Minute })
 	brain.SetProfileStore(ps)
@@ -172,7 +161,7 @@ func TestBrain_CheckInactiveSquads(t *testing.T) {
 func TestBrain_CheckInactiveSquads_ActiveSquad(t *testing.T) {
 	d, ctx := testSetup(t)
 	brain := NewBrain(d, DefaultChains())
-	brain.SetNotifier(NewNotifier(""))
+	brain.SetNotifier(NewNtfyNotifier("", ""))
 
 	ps := NewProfileStore(d.rdb, d.namespace, func(string) time.Duration { return 3 * time.Minute })
 	brain.SetProfileStore(ps)

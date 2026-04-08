@@ -544,3 +544,21 @@ func slackTextBlocks(text string) []interface{} {
 	return []interface{}{slackSection(text)}
 }
 
+// slackButton builds a Block Kit button element. Pass style="primary" or "danger"
+// for coloured buttons; empty string for default styling.
+func slackButton(actionID, value, text, style string) map[string]interface{} {
+	btn := map[string]interface{}{
+		"type":      "button",
+		"action_id": actionID,
+		"value":     value,
+		"text": map[string]interface{}{
+			"type": "plain_text",
+			"text": text,
+		},
+	}
+	if style != "" {
+		btn["style"] = style
+	}
+	return btn
+}
+

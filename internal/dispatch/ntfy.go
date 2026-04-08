@@ -85,6 +85,87 @@ func (n *NtfyNotifier) PostAllDriversDown(ctx context.Context, description strin
 	return n.send(ctx, "🚨 All Drivers Exhausted", description, NtfyPriorityMax, nil)
 }
 
+// PostSprintDigest sends a sprint digest notification summarising driver health,
+// pass rate, and sprint item counts.
+func (n *NtfyNotifier) PostSprintDigest(ctx context.Context, drivers interface{}, ok, fail int64, items interface{}) error {
+	if !n.Enabled() {
+		return nil
+	}
+	total := ok + fail
+	var pct float64
+	if total > 0 {
+		pct = float64(ok) / float64(total) * 100
+	}
+	msg := fmt.Sprintf("Pass rate: %.1f%% (%d ok / %d fail)", pct, ok, fail)
+	return n.send(ctx, "Sprint Digest", msg, NtfyPriorityDefault, nil)
+}
+
+// PostBudgetDashboard sends a budget dashboard notification with pass/fail counts.
+func (n *NtfyNotifier) PostBudgetDashboard(ctx context.Context, drivers interface{}, ok, fail int64) error {
+	if !n.Enabled() {
+		return nil
+	}
+	total := ok + fail
+	var pct float64
+	if total > 0 {
+		pct = float64(ok) / float64(total) * 100
+	}
+	msg := fmt.Sprintf("Pass rate: %.1f%% (%d ok / %d fail)", pct, ok, fail)
+	return n.send(ctx, "Budget Dashboard", msg, NtfyPriorityDefault, nil)
+}
+
+// PostDailyStandup sends a daily standup summary notification.
+func (n *NtfyNotifier) PostDailyStandup(ctx context.Context, entries interface{}) error {
+	if !n.Enabled() {
+		return nil
+	}
+	return n.send(ctx, "Daily Standup", "Standup entries posted — check dashboard for details.", NtfyPriorityDefault, nil)
+}
+
+// PostStuckAgentAlert sends a high-priority alert for an agent stuck in triage.
+func (n *NtfyNotifier) PostStuckAgentAlert(ctx context.Context, agent string, consecutiveFails int) error {
+	if !n.Enabled() {
+		return nil
+	}
+	msg := fmt.Sprintf("Agent %s stuck — %d consecutive failures, triage flag set.", agent, consecutiveFails)
+	return n.send(ctx, "Stuck Agent: "+agent, msg, NtfyPriorityHigh, nil)
+}
+
+// PostInactiveSquadAlert sends a high-priority alert for an inactive squad.
+func (n *NtfyNotifier) PostInactiveSquadAlert(ctx context.Context, squad string, idleHours int) error {
+	if !n.Enabled() {
+		return nil
+	}
+	msg := fmt.Sprintf("Squad %s has had no dispatch activity for %d hours.", squad, idleHours)
+	return n.send(ctx, "Inactive Squad: "+squad, msg, NtfyPriorityHigh, nil)
+}
+
+// PostDriversDown sends a max-priority alert when all drivers are exhausted.
+func (n *NtfyNotifier) PostDriversDown(ctx context.Context, description string) error {
+	return n.PostAllDriversDown(ctx, description)
+}
+
+// PostDriversRecovered sends a notification when drivers have recovered.
+func (n *NtfyNotifier) PostDriversRecovered(ctx context.Context) error {
+	if !n.Enabled() {
+		return nil
+	}
+	return n.send(ctx, "Drivers Recovered", "At least one driver circuit closed — dispatch resuming.", NtfyPriorityDefault, nil)
+}
+
+// PostAdapterDispatch sends a low-priority notification for adapter dispatch results.
+func (n *NtfyNotifier) PostAdapterDispatch(ctx context.Context, adapter, repo string, issueNum int, status, errMsg string) error {
+	if !n.Enabled() {
+		return nil
+	}
+	title := fmt.Sprintf("Adapter: %s %s#%d", adapter, repo, issueNum)
+	msg := fmt.Sprintf("Status: %s", status)
+	if errMsg != "" {
+		msg += "\nError: " + errMsg
+	}
+	return n.send(ctx, title, msg, NtfyPriorityLow, nil)
+}
+
 // send performs the HTTP POST to the ntfy topic endpoint.
 // extraHeaders are set as additional HTTP headers (e.g., X-Actions for clickable buttons).
 func (n *NtfyNotifier) send(ctx context.Context, title, message string, priority int, extraHeaders map[string]string) error {
