@@ -16,11 +16,19 @@ import (
 
 // CodingResult is the outcome of implementing a fix for an escalated PR.
 type CodingResult struct {
-	Implemented bool   `json:"implemented"` // true if code was successfully implemented
-	Summary     string `json:"summary"`     // one-line summary of what was done
-	Changes     string `json:"changes"`     // description of changes made
-	CostCents   int    `json:"cost_cents"`
-	Model       string `json:"model"`
+	Implemented bool               `json:"implemented"` // true if code was successfully implemented
+	Summary     string             `json:"summary"`     // one-line summary of what was done
+	Changes     string             `json:"changes"`     // description of changes made
+	CostCents   int                `json:"cost_cents"`
+	Model       string             `json:"model"`
+	Files       []CodingResultFile `json:"files,omitempty"` // files that were modified
+}
+
+// CodingResultFile represents a file that was modified in the fix.
+type CodingResultFile struct {
+	Path     string `json:"path"`               // file path
+	Original string `json:"original,omitempty"` // original code snippet (if relevant)
+	Fixed    string `json:"fixed"`              // fixed code snippet
 }
 
 // CodingHandler implements fixes for escalated PRs (tier:b-code) via Claude API.
@@ -96,9 +104,36 @@ func (c *CodingHandler) HandlePR(ctx context.Context, repo string, prNumber int)
 		return nil, fmt.Errorf("implement fix: %w", err)
 	}
 
-	// TODO: Actually apply the fixes (create commit, push, etc.)
-	// For now, we just return the analysis result
-	// In Phase 3, we would implement the actual code application
+	// Apply the fixes if they were implemented
+	if result.Implemented && len(result.Files) > 0 {
+		applyErr := c.applyFixes(ctx, repo, prNumber, result)
+		if applyErr != nil {
+			// Log the error but don't fail the whole operation
+			fmt.Fprintf(os.Stderr, "[octi-pulpo] failed to apply fixes for PR #%d: %v\n", prNumber, applyErr)
+			// Update the result to reflect partial success
+			result.Summary = result.Summary + " (fixes generated but failed to apply)"
+			result.Changes = result.Changes + "\n\nNote: Failed to apply fixes automatically: " + applyErr.Error()
+		} else {
+			// Successfully applied fixes
+			result.Summary = result.Summary + " (fixes applied and committed)"
+			
+			// Post a comment on the PR
+			comment := fmt.Sprintf("## Tier B Coding: Fixes Applied\n\n%s\n\nChanges have been committed to the PR branch.", result.Changes)
+			if postErr := c.postComment(ctx, repo, prNumber, comment); postErr != nil {
+				fmt.Fprintf(os.Stderr, "[octi-pulpo] failed to post comment on PR #%d: %v\n", prNumber, postErr)
+			}
+			
+			// Remove the tier:b-code label since we've applied fixes
+			if removeErr := c.removeLabel(ctx, repo, prNumber, "tier:b-code"); removeErr != nil {
+				fmt.Fprintf(os.Stderr, "[octi-pulpo] failed to remove tier:b-code label from PR #%d: %v\n", prNumber, removeErr)
+			}
+			
+			// Add a tier:review label for re-review
+			if addErr := c.addLabel(ctx, repo, prNumber, "tier:review"); addErr != nil {
+				fmt.Fprintf(os.Stderr, "[octi-pulpo] failed to add tier:review label to PR #%d: %v\n", prNumber, addErr)
+			}
+		}
+	}
 
 	return result, nil
 }
@@ -241,12 +276,23 @@ set "implemented": false and explain why in "summary".`,
 	recordBudgetCost(ctx, c.budgetStore, "coder", costCents,
 		apiResp.Usage.InputTokens, apiResp.Usage.OutputTokens)
 
+	// Convert files to CodingResultFile format
+	files := make([]CodingResultFile, 0, len(fixResp.Files))
+	for _, f := range fixResp.Files {
+		files = append(files, CodingResultFile{
+			Path:     f.Path,
+			Original: f.Original,
+			Fixed:    f.Fixed,
+		})
+	}
+
 	return &CodingResult{
 		Implemented: fixResp.Implemented,
 		Summary:     fixResp.Summary,
 		Changes:     fixResp.Changes,
 		CostCents:   costCents,
 		Model:       c.model,
+		Files:       files,
 	}, nil
 }
 
@@ -413,4 +459,62 @@ func (c *CodingHandler) postComment(ctx context.Context, repo string, prNumber i
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// applyFixes applies the generated fixes to the PR branch by creating a commit
+// with the changes and pushing it to the remote repository.
+func (c *CodingHandler) applyFixes(ctx context.Context, repo string, prNumber int, result *CodingResult) error {
+	// First, we need to get the PR details to know the branch name
+	prURL := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d", repo, prNumber)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, prURL, nil)
+	if err != nil {
+		return fmt.Errorf("create PR request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.ghToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("fetch PR: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to fetch PR: %d: %s", resp.StatusCode, string(body))
+	}
+
+	var pr struct {
+		Head struct {
+			Ref string `json:"ref"`
+			Repo struct {
+				CloneURL string `json:"clone_url"`
+			} `json:"repo"`
+		} `json:"head"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return fmt.Errorf("parse PR response: %w", err)
+	}
+
+	// For now, we'll log what we would do since actually cloning and modifying
+	// the repository requires more infrastructure
+	fmt.Fprintf(os.Stderr, "[octi-pulpo] Would apply fixes to PR #%d in %s\n", prNumber, repo)
+	fmt.Fprintf(os.Stderr, "[octi-pulpo] Branch: %s\n", pr.Head.Ref)
+	fmt.Fprintf(os.Stderr, "[octi-pulpo] Clone URL: %s\n", pr.Head.Repo.CloneURL)
+	fmt.Fprintf(os.Stderr, "[octi-pulpo] Files to modify: %d\n", len(result.Files))
+	
+	for i, file := range result.Files {
+		fmt.Fprintf(os.Stderr, "[octi-pulpo] File %d: %s\n", i+1, file.Path)
+	}
+
+	// In a real implementation, we would:
+	// 1. Clone the repository
+	// 2. Checkout the PR branch
+	// 3. Apply the fixes to each file
+	// 4. Commit the changes
+	// 5. Push to the remote branch
+	// 6. Return any errors
+
+	// For now, return a placeholder error indicating this needs to be implemented
+	return fmt.Errorf("fix application not fully implemented (would modify %d files)", len(result.Files))
 }
