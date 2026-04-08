@@ -8,19 +8,7 @@
 
 set -euo pipefail
 
-REPOS=(
-  chitinhq/chitin
-  chitinhq/clawta
-  chitinhq/octi
-  chitinhq/shellforge
-  chitinhq/sentinel
-  chitinhq/llmint
-  chitinhq/workspace
-  chitinhq/homebrew-tap
-)
-
 SECRET_FILE="${CHITIN_WEBHOOK_SECRET_FILE:-$HOME/.chitin/webhook-secret}"
-REDIS_URL="${OCTI_REDIS_URL:-redis://localhost:6379}"
 REDIS_KEY="octi:tunnel-url"
 HOOK_IDS_FILE="$HOME/.chitin/webhook-hooks.txt"
 CHECK_INTERVAL=30  # seconds between checks
@@ -29,7 +17,7 @@ log() { echo "[tunnel-sync] $(date -u +%H:%M:%S) $*" >&2; }
 
 get_tunnel_url() {
   journalctl --user -u octi-tunnel.service --no-pager -n 50 2>/dev/null \
-    | grep -oP 'https://[a-z\-]+\.trycloudflare\.com' \
+    | grep -oP 'https://[a-z0-9\-]+\.trycloudflare\.com' \
     | tail -1
 }
 
@@ -63,10 +51,9 @@ update_webhooks() {
     [[ "$repo" == \#* ]] && continue
     [[ -z "$hookid" || -z "$repo" ]] && continue
 
-    if gh api "repos/$repo/hooks/$hookid" --method PATCH \
-      --input - <<EOF >/dev/null 2>&1; then
-{"config":{"url":"$webhook_url","content_type":"json","secret":"$secret"}}
-EOF
+    payload=$(jq -n --arg url "$webhook_url" --arg secret "$secret" \
+      '{"config":{"url":$url,"content_type":"json","secret":$secret}}')
+    if echo "$payload" | gh api "repos/$repo/hooks/$hookid" --method PATCH --input - >/dev/null 2>&1; then
       updated=$((updated + 1))
     else
       log "WARN: failed to update $repo hook $hookid"

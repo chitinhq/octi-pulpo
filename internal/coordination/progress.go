@@ -26,7 +26,7 @@ func progressKey(namespace, contractID string) string {
 
 // PublishProgress publishes a snapshot to a Redis stream.
 // Stream key: {namespace}:progress:{contractID}
-// Auto-trims to ~1000 entries. Sets 1-hour TTL on first write.
+// Auto-trims to ~1000 entries. Refreshes 1-hour TTL on every publish.
 func PublishProgress(ctx context.Context, rdb *redis.Client, namespace string, snap ProgressSnapshot) error {
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -35,12 +35,10 @@ func PublishProgress(ctx context.Context, rdb *redis.Client, namespace string, s
 
 	key := progressKey(namespace, snap.ContractID)
 
-	// XADD returns the new entry ID.
-	id, err := rdb.XAdd(ctx, &redis.XAddArgs{
+	if _, err := rdb.XAdd(ctx, &redis.XAddArgs{
 		Stream: key,
 		Values: map[string]interface{}{"data": string(data)},
-	}).Result()
-	if err != nil {
+	}).Result(); err != nil {
 		return fmt.Errorf("xadd progress: %w", err)
 	}
 
@@ -53,8 +51,6 @@ func PublishProgress(ctx context.Context, rdb *redis.Client, namespace string, s
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("trim/expire pipeline: %w", err)
 	}
-
-	_ = id
 	return nil
 }
 
