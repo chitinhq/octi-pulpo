@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -65,6 +66,9 @@ func (a *OpenClawAdapter) SetLearner(l *learner.Learner) { a.learner = l }
 
 // CanAccept returns true for general tasks when Matrix credentials are configured.
 func (a *OpenClawAdapter) CanAccept(task *Task) bool {
+	if task == nil {
+		return false
+	}
 	if a.accessToken == "" || a.roomID == "" || a.botUserID == "" {
 		return false
 	}
@@ -79,6 +83,9 @@ func (a *OpenClawAdapter) CanAccept(task *Task) bool {
 
 // Dispatch sends a task to the OpenClaw bot via Matrix and waits for a response.
 func (a *OpenClawAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.timeout)
+	defer cancel()
+
 	result := &AdapterResult{
 		TaskID:  task.ID,
 		Adapter: a.Name(),
@@ -132,15 +139,18 @@ func (a *OpenClawAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterRes
 
 // sendMessage sends a text message to the dispatch room.
 func (a *OpenClawAdapter) sendMessage(ctx context.Context, txnID, body string) error {
-	url := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s",
-		a.homeserver, a.roomID, txnID)
+	reqURL := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/send/m.room.message/%s",
+		a.homeserver, url.PathEscape(a.roomID), url.PathEscape(txnID))
 
-	payload, _ := json.Marshal(map[string]string{
+	payload, err := json.Marshal(map[string]string{
 		"msgtype": "m.text",
 		"body":    body,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal message payload: %w", err)
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, "PUT", reqURL, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -180,9 +190,16 @@ func (a *OpenClawAdapter) waitForResponse(ctx context.Context, afterTxnID string
 		case <-deadline:
 			return "", fmt.Errorf("timeout waiting for OpenClaw response after %s", a.timeout)
 		case <-ticker.C:
-			response, found, err := a.checkForBotMessage(ctx, fromToken)
+			response, found, nextToken, err := a.checkForBotMessage(ctx, fromToken)
 			if err != nil {
+				// Non-transient HTTP errors should stop polling immediately.
+				if isNonTransientError(err) {
+					return "", fmt.Errorf("non-transient error polling for response: %w", err)
+				}
 				continue // transient error, keep polling
+			}
+			if nextToken != "" {
+				fromToken = nextToken
 			}
 			if found {
 				return response, nil
@@ -191,12 +208,21 @@ func (a *OpenClawAdapter) waitForResponse(ctx context.Context, afterTxnID string
 	}
 }
 
+// isNonTransientError returns true for HTTP status codes that indicate the
+// request will never succeed (auth failures, not found, etc.).
+func isNonTransientError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "(401)") ||
+		strings.Contains(msg, "(403)") ||
+		strings.Contains(msg, "(404)")
+}
+
 // getSyncToken gets a pagination token from the room's latest state.
 func (a *OpenClawAdapter) getSyncToken(ctx context.Context) (string, error) {
-	url := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/messages?dir=b&limit=1",
-		a.homeserver, a.roomID)
+	reqURL := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/messages?dir=b&limit=1",
+		a.homeserver, url.PathEscape(a.roomID))
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -207,6 +233,11 @@ func (a *OpenClawAdapter) getSyncToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("matrix messages failed (%d): %s", resp.StatusCode, string(body))
+	}
 
 	var result struct {
 		Start string `json:"start"`
@@ -218,24 +249,30 @@ func (a *OpenClawAdapter) getSyncToken(ctx context.Context) (string, error) {
 }
 
 // checkForBotMessage checks for new messages from the bot in the room.
-func (a *OpenClawAdapter) checkForBotMessage(ctx context.Context, fromToken string) (string, bool, error) {
-	url := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/messages?dir=f&limit=10",
-		a.homeserver, a.roomID)
+// Returns (message, found, nextToken, error).
+func (a *OpenClawAdapter) checkForBotMessage(ctx context.Context, fromToken string) (string, bool, string, error) {
+	reqURL := fmt.Sprintf("%s/_matrix/client/v3/rooms/%s/messages?dir=f&limit=10",
+		a.homeserver, url.PathEscape(a.roomID))
 	if fromToken != "" {
-		url += "&from=" + fromToken
+		reqURL += "&from=" + url.QueryEscape(fromToken)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
-		return "", false, err
+		return "", false, "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+a.accessToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", false, err
+		return "", false, "", err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", false, "", fmt.Errorf("matrix messages failed (%d): %s", resp.StatusCode, string(body))
+	}
 
 	var result struct {
 		Chunk []struct {
@@ -246,10 +283,13 @@ func (a *OpenClawAdapter) checkForBotMessage(ctx context.Context, fromToken stri
 				MsgType string `json:"msgtype"`
 			} `json:"content"`
 		} `json:"chunk"`
+		End string `json:"end"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", false, err
+		return "", false, "", err
 	}
+
+	nextToken := result.End
 
 	// Look for a message from the bot (not from us)
 	for _, event := range result.Chunk {
@@ -265,9 +305,9 @@ func (a *OpenClawAdapter) checkForBotMessage(ctx context.Context, fromToken stri
 			continue
 		}
 		if len(body) > 0 {
-			return body, true, nil
+			return body, true, nextToken, nil
 		}
 	}
 
-	return "", false, nil
+	return "", false, nextToken, nil
 }
