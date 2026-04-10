@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,7 +114,7 @@ func NewWebhookServer(dispatcher *Dispatcher, secretFile string) *WebhookServer 
 	ws.mux.HandleFunc("/sprint/sync", ws.handleSprintSync)
 	ws.mux.HandleFunc("/benchmark", ws.handleBenchmark)
 	ws.mux.HandleFunc("/slack/actions", ws.handleSlackActions)
-	ws.mux.HandleFunc("/api/memory", ws.handleMemoryStore)
+	ws.mux.HandleFunc("/api/memory", ws.handleMemory)
 	ws.mux.HandleFunc("/cascade/trigger", ws.handleCascadeTrigger)
 	return ws
 }
@@ -123,14 +124,56 @@ func (ws *WebhookServer) SetMemoryStore(m *memory.Store) {
 	ws.memoryStore = m
 }
 
+// handleMemory routes GET (recall) and POST (store) for the /api/memory endpoint.
+func (ws *WebhookServer) handleMemory(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		ws.handleMemoryRecall(w, r)
+	case http.MethodPost:
+		ws.handleMemoryStore(w, r)
+	default:
+		http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleMemoryRecall returns recent memories matching a query or topic.
+// GET /api/memory?query=swarm-worker&limit=5
+func (ws *WebhookServer) handleMemoryRecall(w http.ResponseWriter, r *http.Request) {
+	if ws.memoryStore == nil {
+		http.Error(w, "memory store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	query := r.URL.Query().Get("query")
+	if query == "" {
+		query = r.URL.Query().Get("topic")
+	}
+	if query == "" {
+		http.Error(w, "query or topic parameter required", http.StatusBadRequest)
+		return
+	}
+
+	limit := 10
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	entries, err := ws.memoryStore.Recall(r.Context(), query, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(entries)
+}
+
 // handleMemoryStore receives memory entries from Chitin CLI hooks
 // via the Octi Bridge. This is how human CLI sessions feed the swarm's
 // episodic memory.
 func (ws *WebhookServer) handleMemoryStore(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
 	if ws.memoryStore == nil {
 		http.Error(w, "memory store not configured", http.StatusServiceUnavailable)
 		return
