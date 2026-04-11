@@ -17,10 +17,32 @@ import (
 // TriageResult is the outcome of classifying an issue.
 type TriageResult struct {
 	Tier       string  `json:"tier"`       // "tier:c", "tier:b-scope", "tier:a-groom"
+	Complexity string  `json:"complexity"` // "complexity:low", "complexity:med", "complexity:high"
 	Reason     string  `json:"reason"`
 	Confidence float64 `json:"confidence"`
 	CostCents  int     `json:"cost_cents"`
 	Model      string  `json:"model"`
+}
+
+// inferComplexity derives a complexity label from the tier and issue title.
+func inferComplexity(tier, title string) string {
+	switch tier {
+	case "tier:a-groom":
+		return "complexity:high"
+	case "tier:c":
+		return "complexity:low"
+	case "tier:b-scope":
+		lower := strings.ToLower(title)
+		if strings.HasPrefix(lower, "test:") || strings.HasPrefix(lower, "chore:") || strings.HasPrefix(lower, "docs:") {
+			return "complexity:low"
+		}
+		if strings.HasPrefix(lower, "fix:") || strings.Contains(lower, "race condition") || strings.Contains(lower, "security") {
+			return "complexity:high"
+		}
+		return "complexity:med"
+	default:
+		return "complexity:med"
+	}
 }
 
 // TriageHandler classifies GitHub issues via Claude API and labels them.
@@ -71,12 +93,16 @@ func (t *TriageHandler) HandleIssue(ctx context.Context, repo string, issueNumbe
 		fmt.Fprintf(os.Stderr, "[octi-pulpo] %v\n", err)
 		result := &TriageResult{
 			Tier:       "tier:b-scope",
+			Complexity: inferComplexity("tier:b-scope", title),
 			Reason:     "budget exceeded — defaulting to safe tier",
 			Confidence: 0.0,
 			Model:      "none (budget-gated)",
 		}
 		if labelErr := t.addLabel(ctx, repo, issueNumber, result.Tier); labelErr != nil {
 			return result, fmt.Errorf("add label: %w", labelErr)
+		}
+		if labelErr := t.addLabel(ctx, repo, issueNumber, result.Complexity); labelErr != nil {
+			return result, fmt.Errorf("add complexity label: %w", labelErr)
 		}
 		_ = t.removeLabel(ctx, repo, issueNumber, "triage:needed")
 		if commentErr := t.postComment(ctx, repo, issueNumber, result); commentErr != nil {
@@ -96,9 +122,15 @@ func (t *TriageHandler) HandleIssue(ctx context.Context, repo string, issueNumbe
 		}
 	}
 
+	// Assign complexity based on tier and title
+	result.Complexity = inferComplexity(result.Tier, title)
+
 	// Label the issue
 	if err := t.addLabel(ctx, repo, issueNumber, result.Tier); err != nil {
 		return result, fmt.Errorf("add label: %w", err)
+	}
+	if err := t.addLabel(ctx, repo, issueNumber, result.Complexity); err != nil {
+		return result, fmt.Errorf("add complexity label: %w", err)
 	}
 
 	// Remove triage:needed if present
