@@ -40,6 +40,8 @@ EXISTING=$(git -C "$REPO_DIR" worktree list --porcelain 2>/dev/null | grep -c "$
 case "$PLATFORM" in
   claude)  command -v claude >/dev/null 2>&1 || err "claude CLI not found in PATH" ;;
   copilot) command -v copilot >/dev/null 2>&1 || err "copilot CLI not found in PATH" ;;
+  gemini)  command -v gemini >/dev/null 2>&1 || err "gemini CLI not found in PATH" ;;
+  codex)   command -v codex >/dev/null 2>&1 || err "codex CLI not found in PATH" ;;
   *)       err "unknown platform: $PLATFORM" ;;
 esac
 

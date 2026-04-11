@@ -84,6 +84,21 @@ case "$PLATFORM" in
 
     (cd "$WORK_DIR" && copilot "${ARGS[@]}") > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
     ;;
+
+  gemini)
+    # Gemini CLI: -p for headless, -y for auto-approve (chitin hooks govern), -o json for structured output
+    ARGS=(-p "$PROMPT" -m "$MODEL" -y -o json)
+
+    (cd "$WORK_DIR" && gemini "${ARGS[@]}") > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
+    ;;
+
+  codex)
+    # Codex CLI: exec for headless, -m for model
+    # Codex uses config for approval mode — set full-auto via -c
+    ARGS=(exec "$PROMPT" -m "$MODEL" -c 'approval_mode="full-auto"' --json)
+
+    (cd "$WORK_DIR" && codex "${ARGS[@]}") > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
+    ;;
 esac
 
 DISPATCH_END=$(date +%s%N)
