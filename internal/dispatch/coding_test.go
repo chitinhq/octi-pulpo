@@ -22,6 +22,19 @@ type mockGitRunner struct {
 	diffOutput  string
 }
 
+// gitSubcommand finds the first non-flag argument (skipping -c key=val pairs)
+// to determine the actual git subcommand.
+func gitSubcommand(args []string) string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-c" {
+			i++ // skip the value
+			continue
+		}
+		return args[i]
+	}
+	return ""
+}
+
 func (m *mockGitRunner) CombinedOutput(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	_ = ctx
 	call := gitCall{dir: dir, args: append([]string(nil), args...)}
@@ -31,7 +44,7 @@ func (m *mockGitRunner) CombinedOutput(ctx context.Context, dir string, args ...
 		return nil, nil
 	}
 
-	switch args[0] {
+	switch gitSubcommand(args) {
 	case "clone":
 		m.cloneDest = args[len(args)-1]
 		if err := os.MkdirAll(m.cloneDest, 0o755); err != nil {
@@ -49,7 +62,7 @@ func (m *mockGitRunner) CombinedOutput(ctx context.Context, dir string, args ...
 		return []byte("committed"), nil
 	case "push":
 		if m.failPush {
-			return nil, os.ErrPermission
+			return []byte("fatal: could not push"), os.ErrPermission
 		}
 		if m.snapshotDir != "" && m.cloneDest != "" {
 			if err := copyTree(m.cloneDest, m.snapshotDir); err != nil {

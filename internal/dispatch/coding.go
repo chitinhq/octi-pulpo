@@ -3,14 +3,15 @@ package dispatch
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -487,10 +488,7 @@ func (c *CodingHandler) applyFixes(ctx context.Context, repo string, prNumber in
 		return fmt.Errorf("missing PR clone URL")
 	}
 
-	cloneURL, err := withGitToken(pr.CloneURL, c.ghToken)
-	if err != nil {
-		return fmt.Errorf("prepare clone url: %w", err)
-	}
+	authArgs := gitAuthArgs(c.ghToken)
 
 	tempDir, err := os.MkdirTemp("", "octi-coding-*")
 	if err != nil {
@@ -501,11 +499,12 @@ func (c *CodingHandler) applyFixes(ctx context.Context, repo string, prNumber in
 	worktreeDir := filepath.Join(tempDir, "repo")
 	fmt.Fprintf(os.Stderr, "[octi-pulpo] applying fixes for PR #%d in %s\n", prNumber, repo)
 
-	if _, err := c.runGit(ctx, "", "clone", cloneURL, worktreeDir); err != nil {
-		return fmt.Errorf("clone repo: %w", err)
+	cloneArgs := append(append([]string{}, authArgs...), "clone", pr.CloneURL, worktreeDir)
+	if out, err := c.runGit(ctx, "", cloneArgs...); err != nil {
+		return fmt.Errorf("clone repo: %s", redactGitOutput(out, err))
 	}
-	if _, err := c.runGit(ctx, worktreeDir, "checkout", pr.HeadRef); err != nil {
-		return fmt.Errorf("checkout branch: %w", err)
+	if out, err := c.runGit(ctx, worktreeDir, "checkout", pr.HeadRef); err != nil {
+		return fmt.Errorf("checkout branch: %s", redactGitOutput(out, err))
 	}
 
 	for _, file := range result.Files {
@@ -514,30 +513,31 @@ func (c *CodingHandler) applyFixes(ctx context.Context, repo string, prNumber in
 		}
 	}
 
-	if _, err := c.runGit(ctx, worktreeDir, "add", "-A"); err != nil {
-		return fmt.Errorf("stage changes: %w", err)
+	if out, err := c.runGit(ctx, worktreeDir, "add", "-A"); err != nil {
+		return fmt.Errorf("stage changes: %s", redactGitOutput(out, err))
 	}
 
 	changed, err := c.runGit(ctx, worktreeDir, "diff", "--cached", "--name-only")
 	if err != nil {
-		return fmt.Errorf("inspect staged changes: %w", err)
+		return fmt.Errorf("inspect staged changes: %s", redactGitOutput(changed, err))
 	}
 	if strings.TrimSpace(string(changed)) == "" {
 		return fmt.Errorf("no changes produced by fix application")
 	}
 
-	if _, err := c.runGit(ctx, worktreeDir,
+	if out, err := c.runGit(ctx, worktreeDir,
 		"-c", "user.name=Octi Pulpo",
 		"-c", "user.email=noreply@chitinhq.com",
 		"commit",
 		"-m", "fix: apply Tier B coding fixes",
 		"-m", "Co-Authored-By: Octi Pulpo <noreply@chitinhq.com>",
 	); err != nil {
-		return fmt.Errorf("commit changes: %w", err)
+		return fmt.Errorf("commit changes: %s", redactGitOutput(out, err))
 	}
 
-	if _, err := c.runGit(ctx, worktreeDir, "push", "origin", "HEAD:"+pr.HeadRef); err != nil {
-		return fmt.Errorf("push changes: %w", err)
+	pushArgs := append(append([]string{}, authArgs...), "push", "origin", "HEAD:"+pr.HeadRef)
+	if out, err := c.runGit(ctx, worktreeDir, pushArgs...); err != nil {
+		return fmt.Errorf("push changes: %s", redactGitOutput(out, err))
 	}
 
 	return nil
@@ -563,17 +563,36 @@ func (c *CodingHandler) runGit(ctx context.Context, dir string, args ...string) 
 	return runner.CombinedOutput(ctx, dir, args...)
 }
 
-func withGitToken(rawURL, token string) (string, error) {
+// gitAuthArgs returns git CLI flags that inject the GitHub token via
+// http.extraheader instead of embedding it in the clone URL. This avoids
+// leaking the token via `ps` output or `.git/config`.
+func gitAuthArgs(token string) []string {
 	if token == "" {
-		return rawURL, nil
+		return nil
 	}
+	cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	return []string{"-c", "http.extraheader=Authorization: basic " + cred}
+}
 
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", err
+// credentialPattern matches tokens, passwords, and basic-auth strings that
+// should be scrubbed from git output before surfacing in error messages.
+var credentialPattern = regexp.MustCompile(`(?i)(basic\s+[A-Za-z0-9+/=]+|x-access-token:[^\s@]+|://[^\s@]+@)`)
+
+// redactGitOutput combines git's stderr/stdout with the exit error and
+// redacts any credential material so it is safe to include in logs or
+// user-visible error messages.
+func redactGitOutput(out []byte, err error) string {
+	msg := ""
+	if len(out) > 0 {
+		msg = strings.TrimSpace(credentialPattern.ReplaceAllString(string(out), "[REDACTED]"))
 	}
-	parsed.User = url.UserPassword("x-access-token", token)
-	return parsed.String(), nil
+	if err != nil {
+		if msg != "" {
+			msg += ": "
+		}
+		msg += err.Error()
+	}
+	return msg
 }
 
 func writeCodingFile(root string, file CodingResultFile) error {
@@ -586,7 +605,16 @@ func writeCodingFile(root string, file CodingResultFile) error {
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(targetPath, []byte(file.Fixed), 0o644)
+
+	// Preserve existing file permissions; fall back to 0644 for new files.
+	mode := os.FileMode(0o644)
+	info, err := os.Stat(targetPath)
+	if err == nil {
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(targetPath, []byte(file.Fixed), mode)
 }
 
 func formatCodingFiles(files []CodingResultFile) string {
