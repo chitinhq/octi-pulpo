@@ -7,6 +7,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// platformConfig holds per-platform stagger configuration.
+type platformConfig struct {
+	Cooldown time.Duration
+	DailyCap int
+}
+
 // StaggerTracker enforces platform alternation and per-platform cooldowns.
 type StaggerTracker struct {
 	rdb       *redis.Client
@@ -17,9 +23,10 @@ type StaggerTracker struct {
 	CopilotDailyCap int
 	ClaudeDailyCap  int
 
-	mu           sync.Mutex
-	lastPlatform string
-	dispatches   map[string][]time.Time
+	mu              sync.Mutex
+	lastPlatform    string
+	dispatches      map[string][]time.Time
+	platformConfigs map[string]platformConfig
 }
 
 func NewStaggerTracker(rdb *redis.Client, namespace string) *StaggerTracker {
@@ -31,7 +38,27 @@ func NewStaggerTracker(rdb *redis.Client, namespace string) *StaggerTracker {
 		CopilotDailyCap: 8,
 		ClaudeDailyCap:  6,
 		dispatches:      make(map[string][]time.Time),
+		platformConfigs: make(map[string]platformConfig),
 	}
+}
+
+// RegisterPlatform registers a platform with a specific cooldown and daily cap.
+// These values take precedence over the hardcoded claude/copilot defaults.
+func (s *StaggerTracker) RegisterPlatform(name string, cooldown time.Duration, dailyCap int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.platformConfigs[name] = platformConfig{Cooldown: cooldown, DailyCap: dailyCap}
+}
+
+// NextPlatformFromList picks the first available platform from the priority list.
+// avail maps platform name to whether it is available externally (e.g. quota not exhausted).
+func (s *StaggerTracker) NextPlatformFromList(priority []string, avail map[string]bool) string {
+	for _, p := range priority {
+		if avail[p] {
+			return p
+		}
+	}
+	return ""
 }
 
 func (s *StaggerTracker) NextPlatform(copilotAvail, claudeAvail bool) string {
@@ -70,9 +97,13 @@ func (s *StaggerTracker) IsAvailable(platform string, now time.Time) bool {
 	}
 	last := times[len(times)-1]
 
-	cooldown := s.CopilotCooldown
-	if platform == "claude" {
+	var cooldown time.Duration
+	if cfg, ok := s.platformConfigs[platform]; ok {
+		cooldown = cfg.Cooldown
+	} else if platform == "claude" {
 		cooldown = s.ClaudeCooldown
+	} else {
+		cooldown = s.CopilotCooldown
 	}
 	return now.Sub(last) >= cooldown
 }
@@ -81,9 +112,13 @@ func (s *StaggerTracker) IsUnderDailyCap(platform string, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	cap := s.CopilotDailyCap
-	if platform == "claude" {
+	var cap int
+	if cfg, ok := s.platformConfigs[platform]; ok {
+		cap = cfg.DailyCap
+	} else if platform == "claude" {
 		cap = s.ClaudeDailyCap
+	} else {
+		cap = s.CopilotDailyCap
 	}
 
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())

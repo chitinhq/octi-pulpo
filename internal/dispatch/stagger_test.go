@@ -61,3 +61,24 @@ func TestStagger_DailyCaps(t *testing.T) {
 		t.Error("claude should be under cap")
 	}
 }
+
+func TestStagger_NPlatforms(t *testing.T) {
+	s := NewStaggerTracker(nil, "test")
+	s.RegisterPlatform("claude", 45*time.Minute, 6)
+	s.RegisterPlatform("copilot", 30*time.Minute, 8)
+	s.RegisterPlatform("gemini", 20*time.Minute, 10)
+	s.RegisterPlatform("codex", 15*time.Minute, 5)
+
+	for _, p := range []string{"claude", "copilot", "gemini", "codex"} {
+		if !s.IsAvailable(p, time.Now()) {
+			t.Errorf("expected %s available initially", p)
+		}
+	}
+
+	priority := []string{"claude", "copilot", "gemini", "codex"}
+	avail := map[string]bool{"claude": false, "copilot": false, "gemini": true, "codex": true}
+	got := s.NextPlatformFromList(priority, avail)
+	if got != "gemini" {
+		t.Errorf("expected gemini (first available), got %s", got)
+	}
+}
