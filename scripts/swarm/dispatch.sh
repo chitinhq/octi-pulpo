@@ -69,10 +69,11 @@ OUTPUT_FILE="$LOG_DIR/${REPO}-${ISSUE_NUM}-${QUEUE}-$(date +%s).log"
 
 case "$PLATFORM" in
   claude)
-    ARGS=(-p "$PROMPT" --model "$MODEL" --permission-mode auto --max-turns "$MAX_TURNS" --output-format json --bare)
+    ARGS=(-p "$PROMPT" --model "$MODEL" --permission-mode auto --max-turns "$MAX_TURNS" --output-format json)
     [[ -f "$MCP_CONFIG" ]] && ARGS+=(--mcp-config "$MCP_CONFIG")
 
-    claude "${ARGS[@]}" > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
+    # Unset ANTHROPIC_API_KEY so claude -p uses Max plan OAuth, not a stale API key
+    (unset ANTHROPIC_API_KEY && cd "$WORK_DIR" && claude "${ARGS[@]}") > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
     ;;
 
   copilot)
