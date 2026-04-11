@@ -43,11 +43,8 @@ func NewClaudeCodeAdapter(binary, workspace string) *ClaudeCodeAdapter {
 func (a *ClaudeCodeAdapter) Name() string { return "claude-code" }
 
 // CanAccept returns true for task types that the Claude Code CLI handles well.
-// It requires ANTHROPIC_API_KEY to be present.
+// Claude Code CLI authenticates via Max plan OAuth — no API key required.
 func (a *ClaudeCodeAdapter) CanAccept(task *Task) bool {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return false
-	}
 	switch task.Type {
 	case "code-gen", "bugfix", "qa", "plan", "groom", "validate", "pr-review", "triage":
 		return true

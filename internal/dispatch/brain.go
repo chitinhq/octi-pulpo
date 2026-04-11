@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -240,10 +241,10 @@ func (b *Brain) maybeProbeDrivers(ctx context.Context) {
 }
 
 // maybeRunSwarmCycle runs one swarm dispatch cycle if the stagger window allows.
-// Actual GitHub issue scanning and adapter dispatch will be wired in a follow-up;
-// this scaffold establishes the time-gating and stagger logic in the brain loop.
+// Scans sprint items for dispatchable issues, classifies by queue priority,
+// and dispatches via dispatch.sh to the selected CLI platform.
 func (b *Brain) maybeRunSwarmCycle(ctx context.Context) {
-	if b.queueMachine == nil || b.stagger == nil {
+	if b.queueMachine == nil || b.stagger == nil || b.sprintStore == nil {
 		return
 	}
 
@@ -266,8 +267,135 @@ func (b *Brain) maybeRunSwarmCycle(ctx context.Context) {
 		return
 	}
 
-	// Record dispatch to maintain stagger state
+	// Scan sprint items and classify by queue.
+	items, err := b.sprintStore.GetAll(ctx)
+	if err != nil {
+		b.log.Printf("swarm: sprint GetAll: %v", err)
+		return
+	}
+
+	// Count items per queue and collect dispatchable candidates.
+	type candidate struct {
+		item  sprint.SprintItem
+		queue Queue
+	}
+	queueCounts := make(map[Queue]int)
+	var candidates []candidate
+
+	for _, item := range items {
+		// Skip items that are already claimed, done, or have open PRs.
+		if item.Status == "claimed" || item.Status == "done" || item.Status == "pr_open" || item.Status == "blocked" {
+			continue
+		}
+		q := b.queueMachine.ClassifyQueue(item.Labels)
+		if q == QueueDone || q == QueueHuman || q == QueueInProgress {
+			continue
+		}
+		queueCounts[q]++
+		candidates = append(candidates, candidate{item: item, queue: q})
+	}
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	// Pick the highest-priority queue, then the highest-priority item in it.
+	targetQueue := b.queueMachine.PickHighestPriority(queueCounts)
+
+	var best *candidate
+	for i := range candidates {
+		c := &candidates[i]
+		if c.queue != targetQueue {
+			continue
+		}
+		if best == nil || c.item.Priority < best.item.Priority {
+			best = c
+		}
+	}
+	if best == nil {
+		return
+	}
+
+	// Determine queue name and model for dispatch.
+	queueName := queueNameStr(targetQueue)
+	complexity := b.queueMachine.ComplexityFromLabels(best.item.Labels)
+	var model string
+	if platform == "claude" {
+		model = b.modelRouter.ClaudeModel(complexity)
+	} else {
+		model = b.modelRouter.CopilotModel(complexity)
+	}
+
+	// Extract repo short name (e.g., "chitin" from "chitinhq/chitin").
+	repoShort := best.item.Repo
+	if idx := strings.LastIndex(repoShort, "/"); idx >= 0 {
+		repoShort = repoShort[idx+1:]
+	}
+
+	b.log.Printf("swarm: dispatching %s/%s#%d (%s) via %s/%s",
+		best.item.Repo, queueName, best.item.IssueNum, complexity, platform, model)
+
+	// Dispatch via dispatch.sh — it handles worktree, labels, telemetry, post-validation.
+	home, _ := os.UserHomeDir()
+	dispatchScript := filepath.Join(home, "workspace", "octi", "scripts", "swarm", "dispatch.sh")
+
+	// Use background context — dispatch runs in a goroutine and outlives this tick.
+	dispatchCtx, cancel := context.WithTimeout(context.Background(), 35*time.Minute)
+
+	cmd := exec.CommandContext(dispatchCtx, "bash", dispatchScript,
+		platform, repoShort, strconv.Itoa(best.item.IssueNum), queueName, model)
+	cmd.Env = os.Environ()
+	cmd.Dir = filepath.Join(home, "workspace")
+
+	// Run in background so the brain loop doesn't block.
+	go func() {
+		defer cancel()
+		out, err := cmd.CombinedOutput()
+		output := strings.TrimSpace(string(out))
+		if err != nil {
+			b.log.Printf("swarm: dispatch %s/%s#%d failed: %v\n%s",
+				best.item.Repo, queueName, best.item.IssueNum, err, lastLines(output, 10))
+			if b.notifier != nil {
+				b.notifier.Post(dispatchCtx, "swarm dispatch FAILED", fmt.Sprintf("%s#%d (%s/%s) — %v",
+					repoShort, best.item.IssueNum, platform, model, err), 4)
+			}
+		} else {
+			b.log.Printf("swarm: dispatch %s/%s#%d succeeded via %s/%s",
+				best.item.Repo, queueName, best.item.IssueNum, platform, model)
+			if b.notifier != nil {
+				b.notifier.Post(dispatchCtx, "swarm dispatch OK", fmt.Sprintf("%s#%d (%s/%s → %s)",
+					repoShort, best.item.IssueNum, platform, model, queueName), 3)
+			}
+		}
+	}()
+
+	// Record dispatch to maintain stagger state.
 	b.stagger.RecordDispatch(platform, now)
+}
+
+// queueNameStr maps Queue constants to the string names dispatch.sh expects.
+func queueNameStr(q Queue) string {
+	switch q {
+	case QueueGroom:
+		return "groom"
+	case QueueIntake:
+		return "intake"
+	case QueueBuild:
+		return "build"
+	case QueueValidate:
+		return "validate"
+	default:
+		return "intake"
+	}
+}
+
+// lastLines returns the last n lines of a string.
+func lastLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
 // ProbeDrivers checks all discovered drivers with a lightweight CLI probe.
@@ -315,7 +443,7 @@ func (b *Brain) ProbeDrivers(ctx context.Context) {
 // checks or auth status only — no token consumption).
 var driverProbeCommands = map[string][]string{
 	"claude-code": {"claude", "--version"},
-	"copilot":     {"gh", "auth", "status"},
+	"copilot":     {"copilot", "--version"},
 	"codex":       {"codex", "--version"},
 	"gemini":      {"gemini", "--version"},
 	"goose":       {"goose", "--version"},

@@ -35,6 +35,8 @@ type SprintItem struct {
 	GoalID       string   `json:"goal_id,omitempty"`
 	ParentGoalID string   `json:"parent_goal_id,omitempty"`
 	GoalAncestry []string `json:"goal_ancestry,omitempty"`
+	// Labels stores the GitHub label names for queue classification.
+	Labels []string `json:"labels,omitempty"`
 	// FastPath marks items that can skip the architect stage and go directly
 	// to stage:implement at Mid/Light tier. Detected from GitHub labels and
 	// title patterns during Sync.
@@ -249,6 +251,7 @@ func (s *Store) Sync(ctx context.Context, repo string) error {
 			AssignTo:  assignTo,
 			Status:    "open",
 			UpdatedAt: now,
+			Labels:    labelNames,
 			FastPath:  classifyFastPath(issue.Title, labelNames),
 		}
 

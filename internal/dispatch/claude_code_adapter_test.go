@@ -37,11 +37,12 @@ func TestClaudeCodeAdapterCanAccept(t *testing.T) {
 }
 
 func TestClaudeCodeAdapterCanAcceptNoKey(t *testing.T) {
+	// Claude Code CLI uses Max plan OAuth — no API key required.
 	os.Unsetenv("ANTHROPIC_API_KEY")
 	a := NewClaudeCodeAdapter("", "")
 	task := &Task{Type: "code-gen"}
-	if a.CanAccept(task) {
-		t.Error("CanAccept should return false when ANTHROPIC_API_KEY is unset")
+	if !a.CanAccept(task) {
+		t.Error("CanAccept should return true even without ANTHROPIC_API_KEY (Max plan OAuth)")
 	}
 }
 
