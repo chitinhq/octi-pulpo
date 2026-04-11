@@ -1,0 +1,29 @@
+{
+  "priority": ["claude", "copilot", "gemini", "codex"],
+  "platforms": {
+    "claude": {
+      "queues": ["intake", "groom", "build", "validate"],
+      "model": "opus",
+      "daily_cap": 20,
+      "enabled": true
+    },
+    "copilot": {
+      "queues": ["intake", "groom", "build", "validate"],
+      "model": "claude-4-sonnet",
+      "daily_cap": 20,
+      "enabled": true
+    },
+    "gemini": {
+      "queues": ["intake", "groom"],
+      "model": "gemini-2.5-pro",
+      "daily_cap": 10,
+      "enabled": true
+    },
+    "codex": {
+      "queues": ["intake", "groom"],
+      "model": "o3",
+      "daily_cap": 5,
+      "enabled": true
+    }
+  }
+}
