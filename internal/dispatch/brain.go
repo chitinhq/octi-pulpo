@@ -74,6 +74,14 @@ type Brain struct {
 
 	// ghToken is used for label state machine operations on GitHub issues.
 	ghToken string
+
+	// Swarm assembly line
+	queueMachine   *QueueMachine
+	stagger        *StaggerTracker
+	modelRouter    *ModelRouter
+	escalation     *EscalationManager
+	claudeAdapter  *ClaudeCodeAdapter
+	copilotAdapter *CopilotCLIAdapter
 }
 
 // NewBrain creates a dispatch brain.
@@ -166,6 +174,11 @@ func (b *Brain) Tick(ctx context.Context) {
 	// 6b. Progress gap detection: warn on active claims with no snapshots for >2 min
 	b.checkProgressGaps(ctx)
 
+	// 6c. Swarm assembly line: queue-aware dispatch with stagger + time-gating
+	if b.queueMachine != nil {
+		b.maybeRunSwarmCycle(ctx)
+	}
+
 	// 7. Constraint-driven dispatch (if sprint store is available)
 	if b.sprintStore != nil {
 		constraint := b.identifyConstraint(ctx)
@@ -206,6 +219,37 @@ func (b *Brain) maybeProbeDrivers(ctx context.Context) {
 	}
 	b.ProbeDrivers(ctx)
 	b.lastProbe = time.Now()
+}
+
+// maybeRunSwarmCycle runs one swarm dispatch cycle if the stagger window allows.
+// Actual GitHub issue scanning and adapter dispatch will be wired in a follow-up;
+// this scaffold establishes the time-gating and stagger logic in the brain loop.
+func (b *Brain) maybeRunSwarmCycle(ctx context.Context) {
+	if b.queueMachine == nil || b.stagger == nil {
+		return
+	}
+
+	now := time.Now().UTC()
+	hour := now.Hour()
+	isActiveHours := hour >= 0 && hour < 4 // 00:00-04:00 UTC = Jared's active hours
+
+	claudeAvail := !isActiveHours &&
+		b.stagger.IsAvailable("claude", now) &&
+		b.stagger.IsUnderDailyCap("claude", now)
+	copilotAvail := b.stagger.IsAvailable("copilot", now) &&
+		b.stagger.IsUnderDailyCap("copilot", now)
+
+	if !claudeAvail && !copilotAvail {
+		return
+	}
+
+	platform := b.stagger.NextPlatform(copilotAvail, claudeAvail)
+	if platform == "" {
+		return
+	}
+
+	// Record dispatch to maintain stagger state
+	b.stagger.RecordDispatch(platform, now)
 }
 
 // ProbeDrivers checks all discovered drivers with a lightweight CLI probe.
