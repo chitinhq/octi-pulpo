@@ -1,6 +1,42 @@
 {
-  "tier_b_mode": "claude-api",
+  "tier_b_mode": "cli-swarm",
   "sweeper_interval_hours": 4,
   "auto_merge": true,
-  "ag_gateway_telemetry": false
+  "ag_gateway_telemetry": false,
+  "swarm": {
+    "enabled": true,
+    "platforms": {
+      "copilot": {
+        "cooldown_minutes": 30,
+        "daily_cap": 8,
+        "weekly_cap_pct": 70,
+        "models": {
+          "low": "gpt-5.4-nano",
+          "med": "gpt-5.4-mini",
+          "high": "gpt-5.4"
+        }
+      },
+      "claude": {
+        "cooldown_minutes": 45,
+        "daily_cap": 6,
+        "weekly_cap_pct": 70,
+        "models": {
+          "low": "sonnet",
+          "med": "sonnet",
+          "high": "opus"
+        }
+      }
+    },
+    "schedule": {
+      "active_hours_utc": "00:00-04:00",
+      "active_mode": "copilot-only",
+      "off_hours_mode": "dual-platform"
+    },
+    "groom": {
+      "intake_threshold": 5,
+      "max_issues_per_cycle": 5,
+      "schedule": "weekly-sunday"
+    },
+    "ntfy_topic": "ganglia"
+  }
 }

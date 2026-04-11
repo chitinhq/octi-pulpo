@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "octi": {
+      "command": "go",
+      "args": ["run", "/home/jared/workspace/octi/cmd/octi-pulpo/", "mcp", "serve"],
+      "env": {
+        "OCTI_REDIS_URL": "redis://localhost:6379",
+        "OCTI_NAMESPACE": "octi"
+      }
+    },
+    "atlas": {
+      "command": "go",
+      "args": ["run", "/home/jared/workspace/atlas/cmd/atlas/", "mcp"],
+      "env": {
+        "ATLAS_WIKI_PATH": "/home/jared/workspace/wiki"
+      }
+    }
+  }
+}
