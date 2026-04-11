@@ -17,15 +17,19 @@ err() { echo "PRE-DISPATCH FAIL: $*" >&2; exit 1; }
 # 1. Repo exists and is a git repo
 [[ -d "$REPO_DIR/.git" ]] || err "repo $REPO_DIR is not a git repository"
 
-# 2. Repo is on default branch (main or master) — no leftover branches
-DEFAULT_BRANCH=$(git -C "$REPO_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "master")
-CURRENT_BRANCH=$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD)
-[[ "$CURRENT_BRANCH" == "$DEFAULT_BRANCH" ]] || err "repo $REPO is on branch $CURRENT_BRANCH, expected $DEFAULT_BRANCH"
-
-# 3. Working tree is clean — no uncommitted changes that could leak into worktree
+# 2. Working tree is clean — no uncommitted changes that could leak into worktree
 # Only flag modified/staged files as dirty — untracked files are fine
+# Check this BEFORE branch recovery so we don't lose uncommitted work
 DIRTY=$(git -C "$REPO_DIR" status --porcelain 2>/dev/null | grep -v '^??' | head -1 || true)
 [[ -z "$DIRTY" ]] || err "repo $REPO has uncommitted changes: $DIRTY"
+
+# 3. Repo is on default branch (main or master) — auto-recover stale branches
+DEFAULT_BRANCH=$(git -C "$REPO_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "master")
+CURRENT_BRANCH=$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD)
+if [[ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]]; then
+  echo "PRE-DISPATCH WARN: repo $REPO on branch $CURRENT_BRANCH, auto-recovering to $DEFAULT_BRANCH" >&2
+  git -C "$REPO_DIR" checkout "$DEFAULT_BRANCH" 2>/dev/null || err "repo $REPO is on branch $CURRENT_BRANCH and auto-checkout of $DEFAULT_BRANCH failed"
+fi
 
 # 4. No conflicting worktrees for this issue
 WORKTREE_PATTERN="swarm/*-${ISSUE_NUM}"

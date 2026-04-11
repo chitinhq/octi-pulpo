@@ -140,5 +140,12 @@ if [[ -d "${WORKTREE_DIR:-}" ]]; then
   fi
 fi
 
+# ── Phase 12: Ensure main checkout is on default branch ─────────────
+DEFAULT_BRANCH=$(git -C "$REPO_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "master")
+CURRENT=$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+if [[ "$CURRENT" != "$DEFAULT_BRANCH" ]]; then
+  git -C "$REPO_DIR" checkout "$DEFAULT_BRANCH" 2>/dev/null || log "WARN: failed to return to $DEFAULT_BRANCH"
+fi
+
 log "Done: $PLATFORM/$REPO#$ISSUE_NUM ($QUEUE) → $RESULT"
 exit $([[ "$RESULT" == "success" ]] && echo 0 || echo 1)
