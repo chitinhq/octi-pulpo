@@ -348,6 +348,8 @@ func (b *Brain) maybeRunSwarmCycle(ctx context.Context) {
 	cmd.Dir = filepath.Join(home, "workspace")
 
 	// Run in background so the brain loop doesn't block.
+	// Only record stagger on success so failed pre-checks don't waste cooldown.
+	dispatchPlatform := platform
 	go func() {
 		defer cancel()
 		out, err := cmd.CombinedOutput()
@@ -362,15 +364,13 @@ func (b *Brain) maybeRunSwarmCycle(ctx context.Context) {
 		} else {
 			b.log.Printf("swarm: dispatch %s/%s#%d succeeded via %s/%s",
 				best.item.Repo, queueName, best.item.IssueNum, platform, model)
+			b.stagger.RecordDispatch(dispatchPlatform, time.Now())
 			if b.notifier != nil {
 				b.notifier.Post(dispatchCtx, "swarm dispatch OK", fmt.Sprintf("%s#%d (%s/%s → %s)",
 					repoShort, best.item.IssueNum, platform, model, queueName), 3)
 			}
 		}
 	}()
-
-	// Record dispatch to maintain stagger state.
-	b.stagger.RecordDispatch(platform, now)
 }
 
 // queueNameStr maps Queue constants to the string names dispatch.sh expects.
