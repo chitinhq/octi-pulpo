@@ -14,20 +14,24 @@ state machine -- all from a single Go binary backed by Redis.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    A[GitHub Issue] --> B(Triage)
-    B --> C(Admission)
-    C --> D(Contract)
-    D --> E(Route)
-    E --> F(Dispatch)
-    F --> G1[Claude Code]
-    F --> G2[Copilot]
-    F --> G3[GH Actions]
-    F --> G4[Anthropic API]
-    F --> G5[Human]
-    G1 & G2 & G3 & G4 & G5 --> H(Result)
-    H --> I[Label Update / Close]
+```text
+  GitHub Issue
+       |
+       v
+   (Triage) -> (Admission) -> (Contract) -> (Route) -> (Dispatch)
+                                                           |
+              +--------------+--------------+--------------+--------------+
+              |              |              |              |              |
+              v              v              v              v              v
+        [Claude Code]   [Copilot]    [GH Actions]   [Anthropic API]    [Human]
+              |              |              |              |              |
+              +--------------+------+-------+--------------+--------------+
+                                    |
+                                    v
+                                (Result)
+                                    |
+                                    v
+                         Label Update / Close
 ```
 
 ### Pipeline stages
