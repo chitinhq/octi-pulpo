@@ -1,0 +1,27 @@
+# Chitin governance policy
+# Docs: https://github.com/chitinhq/chitin
+
+mode: enforce
+
+rules:
+  # Deny dangerous actions
+  - action: dangerous
+    effect: deny
+    reason: Dangerous operations require human approval
+
+  # Deny pushes to protected branches
+  - action: git
+    branches: [main, master]
+    effect: deny
+    reason: Direct push to protected branch — use a feature branch and PR
+
+  # Deny writing secrets
+  - action: write
+    target: ".env"
+    effect: deny
+    reason: Secrets files must not be modified by agents
+
+  # Allow everything else
+  - action: "*"
+    effect: allow
+    reason: Default allow for non-restricted actions
