@@ -618,6 +618,7 @@ func isExpectedBlock(reason string) bool {
 		"already has 'implemented' label",
 		"already validated",
 		"already claimed",
+		"budget check failed",
 	}
 	for _, p := range quietPatterns {
 		if strings.Contains(reason, p) {
