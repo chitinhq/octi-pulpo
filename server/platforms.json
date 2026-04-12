@@ -1,6 +1,12 @@
 {
-  "priority": ["claude", "copilot", "gemini", "codex"],
+  "priority": ["openclaw", "claude", "copilot", "gemini", "codex"],
   "platforms": {
+    "openclaw": {
+      "queues": ["intake", "groom"],
+      "model": "qwen2.5-coder:7b",
+      "daily_cap": 100,
+      "enabled": true
+    },
     "claude": {
       "queues": ["intake", "groom", "build", "validate"],
       "model": "opus",
@@ -9,7 +15,7 @@
     },
     "copilot": {
       "queues": ["intake", "groom", "build", "validate"],
-      "model": "claude-4-sonnet",
+      "model": "gpt-5.4-mini",
       "daily_cap": 20,
       "enabled": true
     },

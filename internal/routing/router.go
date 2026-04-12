@@ -24,9 +24,6 @@ var tierOrder = []CostTier{TierLocal, TierGHActions, TierSubscription, TierCLI, 
 
 // driverTiers maps each known driver to its cost tier.
 var driverTiers = map[string]CostTier{
-	// Local ($0)
-	"ollama":   TierLocal,
-	"nemotron": TierLocal,
 	// Subscription (browser-based, already paying)
 	//   openclaw: browser-automated Claude Max subscription
 	//   chatgpt-browser: OpenAI Plus subscription via chat.openai.com
