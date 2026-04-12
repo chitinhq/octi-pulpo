@@ -12,6 +12,13 @@ import (
 const defaultSkipThreshold = 3
 const defaultSkipTTL = 24 * time.Hour
 
+// SkipEntry records why and until when an issue is skipped.
+type SkipEntry struct {
+	AddedAt   time.Time
+	ExpiresAt time.Time
+	Reason    string
+}
+
 // SkipList tracks issues that no platform can dispatch.
 // Uses in-memory maps with optional Redis persistence.
 type SkipList struct {
@@ -22,7 +29,7 @@ type SkipList struct {
 
 	mu         sync.Mutex
 	rejections map[string]int       // issue key -> consecutive rejection count
-	skipped    map[string]time.Time // issue key -> time added to skip list
+	skipped    map[string]SkipEntry // issue key -> skip entry with expiry + reason
 }
 
 // NewSkipList creates a skip list. If rdb is nil, operates in-memory only.
@@ -33,11 +40,12 @@ func NewSkipList(rdb *redis.Client, namespace string) *SkipList {
 		Threshold:  defaultSkipThreshold,
 		TTL:        defaultSkipTTL,
 		rejections: make(map[string]int),
-		skipped:    make(map[string]time.Time),
+		skipped:    make(map[string]SkipEntry),
 	}
 }
 
 // LoadFromRedis hydrates the in-memory skip list from Redis on startup.
+// Stored score is the expiry unix timestamp.
 func (s *SkipList) LoadFromRedis() int {
 	if s.rdb == nil {
 		return 0
@@ -52,39 +60,99 @@ func (s *SkipList) LoadFromRedis() int {
 	defer s.mu.Unlock()
 	for _, m := range members {
 		issueKey := m.Member.(string)
-		addedAt := time.Unix(int64(m.Score), 0)
-		s.skipped[issueKey] = addedAt
+		expiresAt := time.Unix(int64(m.Score), 0)
+		s.skipped[issueKey] = SkipEntry{
+			AddedAt:   time.Now(),
+			ExpiresAt: expiresAt,
+			Reason:    "loaded-from-redis",
+		}
 		s.rejections[issueKey] = s.Threshold // already skipped
 	}
 	return len(members)
 }
 
 // RecordRejection increments the rejection counter. If it hits the threshold,
-// the issue is added to the skip list.
+// the issue is added to the skip list with the default TTL.
 func (s *SkipList) RecordRejection(issueKey string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.rejections[issueKey]++
 	if s.rejections[issueKey] >= s.Threshold {
-		s.skipped[issueKey] = time.Now()
-		if s.rdb != nil {
-			ctx := context.Background()
-			key := fmt.Sprintf("%s:skip-list", s.namespace)
-			s.rdb.ZAdd(ctx, key, redis.Z{
-				Score:  float64(time.Now().Unix()),
-				Member: issueKey,
-			})
+		now := time.Now()
+		entry := SkipEntry{
+			AddedAt:   now,
+			ExpiresAt: now.Add(s.TTL),
+			Reason:    "no-platform-accepts",
 		}
+		s.skipped[issueKey] = entry
+		s.persistEntry(issueKey, entry)
 	}
 }
 
-// IsSkipped returns true if the issue is in the skip list.
+// SkipFor immediately adds an issue to the skip list with a custom TTL and
+// reason. Bypasses the rejection threshold — used for environmental blocks
+// like "repo has uncommitted changes" or "budget exhausted" that should
+// prevent re-dispatch until the condition likely resolves.
+func (s *SkipList) SkipFor(issueKey, reason string, ttl time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	entry := SkipEntry{
+		AddedAt:   now,
+		ExpiresAt: now.Add(ttl),
+		Reason:    reason,
+	}
+	s.skipped[issueKey] = entry
+	s.persistEntry(issueKey, entry)
+}
+
+// persistEntry writes a skip entry to Redis. Score is the expiry unix
+// timestamp so ExpireOld can use ZRemRangeByScore efficiently. Caller must
+// hold s.mu.
+func (s *SkipList) persistEntry(issueKey string, entry SkipEntry) {
+	if s.rdb == nil {
+		return
+	}
+	ctx := context.Background()
+	key := fmt.Sprintf("%s:skip-list", s.namespace)
+	s.rdb.ZAdd(ctx, key, redis.Z{
+		Score:  float64(entry.ExpiresAt.Unix()),
+		Member: issueKey,
+	})
+}
+
+// IsSkipped returns true if the issue is currently skipped (not yet expired).
 func (s *SkipList) IsSkipped(issueKey string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.skipped[issueKey]
-	return ok
+	entry, ok := s.skipped[issueKey]
+	if !ok {
+		return false
+	}
+	if time.Now().After(entry.ExpiresAt) {
+		// Lazy expiry — clean up on access
+		delete(s.skipped, issueKey)
+		delete(s.rejections, issueKey)
+		if s.rdb != nil {
+			ctx := context.Background()
+			key := fmt.Sprintf("%s:skip-list", s.namespace)
+			s.rdb.ZRem(ctx, key, issueKey)
+		}
+		return false
+	}
+	return true
+}
+
+// SkipReason returns the reason an issue was skipped, or empty string if not
+// skipped. Useful for telemetry and dashboards.
+func (s *SkipList) SkipReason(issueKey string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.skipped[issueKey]; ok {
+		return entry.Reason
+	}
+	return ""
 }
 
 // Clear removes an issue from the skip list and resets its rejection counter.
@@ -104,7 +172,7 @@ func (s *SkipList) Clear(issueKey string) {
 func (s *SkipList) ClearAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.skipped = make(map[string]time.Time)
+	s.skipped = make(map[string]SkipEntry)
 	s.rejections = make(map[string]int)
 	if s.rdb != nil {
 		ctx := context.Background()
@@ -113,13 +181,13 @@ func (s *SkipList) ClearAll() {
 	}
 }
 
-// ExpireOld removes entries older than TTL.
+// ExpireOld removes entries whose per-entry ExpiresAt has passed.
 func (s *SkipList) ExpireOld() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cutoff := time.Now().Add(-s.TTL)
-	for k, t := range s.skipped {
-		if t.Before(cutoff) {
+	now := time.Now()
+	for k, entry := range s.skipped {
+		if now.After(entry.ExpiresAt) {
 			delete(s.skipped, k)
 			delete(s.rejections, k)
 		}
@@ -127,7 +195,7 @@ func (s *SkipList) ExpireOld() {
 	if s.rdb != nil {
 		ctx := context.Background()
 		key := fmt.Sprintf("%s:skip-list", s.namespace)
-		s.rdb.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%d", cutoff.Unix()))
+		s.rdb.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%d", now.Unix()))
 	}
 }
 

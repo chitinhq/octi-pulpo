@@ -379,23 +379,33 @@ func (b *Brain) maybeRunSwarmCycle(ctx context.Context) {
 	// Run in background so the brain loop doesn't block.
 	// Only record stagger on success so failed pre-checks don't waste cooldown.
 	dispatchPlatform := platform
+	issueKey := fmt.Sprintf("%s#%d", repoShort, best.item.IssueNum)
 	go func() {
 		defer cancel()
 		out, err := cmd.CombinedOutput()
 		output := strings.TrimSpace(string(out))
 		if err != nil {
 			reason := extractDispatchReason(output)
-			// Suppress notifications for expected pre-check blocks.
-			quiet := isExpectedBlock(reason)
-			if quiet {
-				b.log.Printf("swarm: %s/%s#%d skipped: %s",
-					best.item.Repo, queueName, best.item.IssueNum, reason)
+			// Classify the failure to decide whether to temporarily block
+			// re-dispatch. Env and budget failures are transient but will
+			// reoccur immediately if not throttled — add to skip list with
+			// appropriate TTL until the underlying condition likely resolves.
+			if blockKind, ttl := classifyDispatchFailure(reason); blockKind != "" && b.skipList != nil {
+				b.skipList.SkipFor(issueKey, blockKind+": "+reason, ttl)
+				b.log.Printf("swarm: %s/%s#%d %s for %s: %s",
+					best.item.Repo, queueName, best.item.IssueNum, blockKind, ttl, reason)
 			} else {
-				b.log.Printf("swarm: dispatch %s/%s#%d failed: %s",
-					best.item.Repo, queueName, best.item.IssueNum, reason)
-				if b.notifier != nil {
-					b.notifier.Post(dispatchCtx, "swarm dispatch FAILED",
-						fmt.Sprintf("%s#%d (%s/%s): %s", repoShort, best.item.IssueNum, platform, model, reason), 4)
+				// Suppress notifications for expected pre-check blocks.
+				if isExpectedBlock(reason) {
+					b.log.Printf("swarm: %s/%s#%d skipped: %s",
+						best.item.Repo, queueName, best.item.IssueNum, reason)
+				} else {
+					b.log.Printf("swarm: dispatch %s/%s#%d failed: %s",
+						best.item.Repo, queueName, best.item.IssueNum, reason)
+					if b.notifier != nil {
+						b.notifier.Post(dispatchCtx, "swarm dispatch FAILED",
+							fmt.Sprintf("%s#%d (%s/%s): %s", repoShort, best.item.IssueNum, platform, model, reason), 4)
+					}
 				}
 			}
 		} else {
@@ -609,6 +619,71 @@ func extractDispatchReason(output string) string {
 	return "unknown error"
 }
 
+// classifyDispatchFailure maps a dispatch failure reason to a block kind and
+// how long to suppress re-dispatch. Returns ("", 0) if the reason doesn't
+// warrant a temporary block (caller should log normally).
+//
+// Block kinds:
+//   - env_blocked: repo state issue (uncommitted changes, wrong branch,
+//     not-a-repo). These clear when the user fixes the repo, so short TTL
+//     gives the brain a chance to retry once resolved.
+//   - budget_blocked: driver daily cap / cooldown. TTL should cover until
+//     the budget window resets.
+//   - driver_unavailable: driver binary missing or circuit open. Medium TTL
+//     since driver health probe will detect recovery.
+func classifyDispatchFailure(reason string) (string, time.Duration) {
+	r := strings.ToLower(reason)
+
+	// Repo environment issues — transient, user-fixable. Retry after short
+	// cooldown so we don't spam the same failure every brain tick but do
+	// pick up the fix quickly once made.
+	envPatterns := []string{
+		"uncommitted changes",
+		"not a git repository",
+		"auto-checkout",
+		"branch is",
+		"wrong branch",
+		"worktree",
+	}
+	for _, p := range envPatterns {
+		if strings.Contains(r, p) {
+			return "env_blocked", 15 * time.Minute
+		}
+	}
+
+	// Budget / rate limit issues — driver-level, not issue-level, but we
+	// block the issue from retrying until the window resets.
+	budgetPatterns := []string{
+		"budget check failed",
+		"daily cap",
+		"cooldown active",
+		"weekly cap",
+		"rate limit",
+	}
+	for _, p := range budgetPatterns {
+		if strings.Contains(r, p) {
+			return "budget_blocked", 1 * time.Hour
+		}
+	}
+
+	// Driver availability — binary missing, circuit open, model unknown.
+	// "not available" catches copilot's "Model X ... is not available" error
+	// seen when an invalid model name is passed.
+	driverPatterns := []string{
+		"not available",
+		"circuit open",
+		"driver not found",
+		"command not found",
+	}
+	for _, p := range driverPatterns {
+		if strings.Contains(r, p) {
+			return "driver_unavailable", 30 * time.Minute
+		}
+	}
+
+	return "", 0
+}
+
 // isExpectedBlock returns true for pre-check failures that are normal and
 // shouldn't generate notifications (interactive session, already planned, etc).
 func isExpectedBlock(reason string) bool {
@@ -686,8 +761,6 @@ var driverProbeCommands = map[string][]string{
 	"codex":       {"codex", "--version"},
 	"gemini":      {"gemini", "--version"},
 	"goose":       {"goose", "--version"},
-	"ollama":      {"ollama", "--version"},
-	"nemotron":    {"ollama", "--version"},
 	"openclaw":    {"openclaw", "--version"},
 }
 
