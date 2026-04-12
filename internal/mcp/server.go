@@ -338,6 +338,13 @@ func (s *Server) handleToolCall(req Request) Response {
 			"pending_agents":    agents,
 			"recent_dispatches": recent,
 		}
+		// Augment with chitin session state so callers see the active
+		// session id (for rating) and recent session history alongside
+		// dispatch info. Best-effort: if chitin isn't installed or the
+		// command fails, skip silently rather than break the response.
+		if sessionsInfo := loadChitinSessionSnapshot(ctx); sessionsInfo != nil {
+			status["chitin_sessions"] = sessionsInfo
+		}
 		data, _ := json.Marshal(status)
 		return textResult(req.ID, string(data))
 
