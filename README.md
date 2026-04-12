@@ -164,6 +164,7 @@ Octi Pulpo is the swarm coordinator. Other repos:
 | **octi** (this repo) | Swarm coordinator — triage, dispatch, routing | Orchestrate multiple agents |
 | [sentinel](https://github.com/chitinhq/sentinel) | Telemetry + detection on agent traces | Analyze how agents fail |
 | [llmint](https://github.com/chitinhq/llmint) | Token-economics middleware for LLM providers | Control LLM cost in Go apps |
+| [atlas](https://github.com/chitinhq/atlas) | Workspace starter kit — knowledge graphs + LLM-compiled wikis | Wrap your repos in AI-powered knowledge tooling |
 
 New to the platform? See [chitin's GETTING_STARTED.md](https://github.com/chitinhq/chitin/blob/main/GETTING_STARTED.md).
 
