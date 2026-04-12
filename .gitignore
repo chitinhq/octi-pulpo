@@ -7,3 +7,9 @@ bin/
 outputs/
 .chitin/
 mcp-swarm.json
+
+# Runtime env files with secrets (e.g. Matrix access tokens)
+server/*-feed.env
+
+# AgentGuard runtime state
+.agentguard/

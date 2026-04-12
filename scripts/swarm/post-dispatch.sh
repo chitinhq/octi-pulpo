@@ -24,63 +24,83 @@ if [[ "$EXIT_CODE" -ne 0 ]]; then
   fail "agent exited with code $EXIT_CODE"
 fi
 
+# Resolve `chitin` binary for gate invocation. Falls back to PATH if the
+# workspace build isn't present, which keeps this script portable.
+CHITIN_BIN="${CHITIN_BIN:-$WORKSPACE/chitin/chitin}"
+if [[ ! -x "$CHITIN_BIN" ]]; then
+  CHITIN_BIN="$(command -v chitin 2>/dev/null || true)"
+fi
+
+# run_chitin_gate <gate-name> invokes the given Chitin Gate with the current
+# dispatch context. Exit 0 = pass (issue can advance), 1 = fail (artifact
+# didn't meet criteria), 2 = error (stalls, does not advance).
+run_chitin_gate() {
+  local gate_name="$1"
+  if [[ -z "$CHITIN_BIN" ]]; then
+    warn "chitin binary not found — skipping gate $gate_name (install chitin to enable)"
+    return 0
+  fi
+  "$CHITIN_BIN" gate run "$gate_name" \
+    --repo "$REPO" --issue "$ISSUE_NUM" --queue "$QUEUE" \
+    --worktree "$WORKTREE_DIR" --format human
+  return $?
+}
+
 # 2. Queue-specific validation
 case "$QUEUE" in
   intake)
-    # Plan queue: agent should have produced a plan comment, no code changes expected
-    # Check if a comment was added to the issue
+    # Plan queue: agent should have produced a plan comment with acceptance
+    # criteria. The existing warn-only comment-count check is kept as a
+    # quick cheap sanity check; the Chitin Gate is the authoritative quality
+    # bar and fails the post-dispatch if criteria are missing.
     COMMENT_COUNT=$(gh api "repos/chitinhq/$REPO/issues/$ISSUE_NUM/comments" --jq 'length' 2>/dev/null || echo "0")
     [[ "$COMMENT_COUNT" -gt 0 ]] || warn "no plan comment found on issue #$ISSUE_NUM"
+
+    run_chitin_gate planning/check_acceptance_criteria
+    gate_rc=$?
+    case "$gate_rc" in
+      0) ;; # pass — nothing to do
+      1) fail "planning gate: acceptance criteria missing or insufficient" ;;
+      *) fail "planning gate errored (rc=$gate_rc) — issue stalled for review" ;;
+    esac
     ;;
 
   build)
-    # Build queue: agent should have commits in the worktree
-    if [[ -d "$WORKTREE_DIR" ]]; then
-      COMMITS=$(git -C "$WORKTREE_DIR" log --oneline HEAD...HEAD~10 2>/dev/null | wc -l || echo "0")
-      [[ "$COMMITS" -gt 0 ]] || fail "no commits in worktree — agent produced no code"
-
-      # Tests must pass
-      if [[ -f "$WORKTREE_DIR/go.mod" ]]; then
-        if ! (cd "$WORKTREE_DIR" && go test ./... -count=1 -timeout 120s >/dev/null 2>&1); then
-          fail "go tests fail in worktree"
-        fi
-      elif [[ -f "$WORKTREE_DIR/package.json" ]]; then
-        if ! (cd "$WORKTREE_DIR" && npm test >/dev/null 2>&1); then
-          fail "npm tests fail in worktree"
-        fi
-      fi
-
-      # Build must succeed
-      if [[ -f "$WORKTREE_DIR/go.mod" ]]; then
-        if ! (cd "$WORKTREE_DIR" && go build ./... >/dev/null 2>&1); then
-          fail "go build fails in worktree"
-        fi
-      fi
-
-      # Check for obvious problems: large binary files, secrets
-      LARGE_FILES=$(git -C "$WORKTREE_DIR" diff --cached --name-only --diff-filter=A 2>/dev/null | while read f; do
-        SIZE=$(wc -c < "$WORKTREE_DIR/$f" 2>/dev/null || echo 0)
-        [[ "$SIZE" -gt 1048576 ]] && echo "$f ($SIZE bytes)"
-      done || true)
-      [[ -z "$LARGE_FILES" ]] || warn "large files added: $LARGE_FILES"
-
-      SECRET_PATTERNS='PRIVATE_KEY|SECRET|PASSWORD|API_KEY|TOKEN.*=.*[a-zA-Z0-9]{20}'
-      SECRETS=$(git -C "$WORKTREE_DIR" diff HEAD~1..HEAD 2>/dev/null | grep -iE "$SECRET_PATTERNS" | head -3 || true)
-      [[ -z "$SECRETS" ]] || fail "possible secrets in diff: $SECRETS"
-    else
+    # Build queue: commits present, build+tests pass, no secrets. All
+    # delegated to the Chitin build gate so the logic is consistent
+    # whether invoked here, from CI, or from a local pre-commit check.
+    if [[ ! -d "$WORKTREE_DIR" ]]; then
       fail "worktree $WORKTREE_DIR does not exist"
+    else
+      run_chitin_gate build/check_compile
+      gate_rc=$?
+      case "$gate_rc" in
+        0) ;; # pass
+        1) fail "build gate: commits missing, build/tests failed, or secrets in diff" ;;
+        *) fail "build gate errored (rc=$gate_rc)" ;;
+      esac
     fi
     ;;
 
   validate)
-    # Validate queue: agent should have reviewed and left a verdict
-    # Check for review comment on the associated PR
+    # Validate queue: CI must be green on the PR before we let the issue
+    # advance to "validated". The Chitin Gate resolves the PR, inspects
+    # the most recent workflow run, and returns fail if CI is red or
+    # error if CI is still in-flight (so the issue stalls for the next
+    # tick rather than bouncing).
+    run_chitin_gate validate/check_ci_passed
+    gate_rc=$?
+    case "$gate_rc" in
+      0) ;; # pass — CI is green
+      1) fail "validate gate: CI did not pass on linked PR" ;;
+      *) fail "validate gate errored (rc=$gate_rc) — CI may still be running" ;;
+    esac
+
+    # Keep the review-comment warning as a soft signal for human eyes.
     PR_NUM=$(gh api "repos/chitinhq/$REPO/pulls?state=open&head=chitinhq:swarm/build-$ISSUE_NUM" --jq '.[0].number' 2>/dev/null || echo "")
     if [[ -n "$PR_NUM" ]]; then
       REVIEW_COUNT=$(gh api "repos/chitinhq/$REPO/pulls/$PR_NUM/reviews" --jq 'length' 2>/dev/null || echo "0")
       [[ "$REVIEW_COUNT" -gt 0 ]] || warn "no review found on PR #$PR_NUM"
-    else
-      warn "no PR found for issue #$ISSUE_NUM"
     fi
     ;;
 esac
