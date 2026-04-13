@@ -108,6 +108,57 @@ func (s *StaggerTracker) IsAvailable(platform string, now time.Time) bool {
 	return now.Sub(last) >= cooldown
 }
 
+// RemainingCooldown returns how much cooldown time is left for a platform.
+// Returns 0 if the platform is available now.
+func (s *StaggerTracker) RemainingCooldown(platform string, now time.Time) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	times := s.dispatches[platform]
+	if len(times) == 0 {
+		return 0
+	}
+	last := times[len(times)-1]
+
+	var cooldown time.Duration
+	if cfg, ok := s.platformConfigs[platform]; ok {
+		cooldown = cfg.Cooldown
+	} else if platform == "claude" {
+		cooldown = s.ClaudeCooldown
+	} else {
+		cooldown = s.CopilotCooldown
+	}
+	elapsed := now.Sub(last)
+	if elapsed >= cooldown {
+		return 0
+	}
+	return cooldown - elapsed
+}
+
+// DispatchedToday returns the number of dispatches for a platform today and the configured cap.
+func (s *StaggerTracker) DispatchedToday(platform string, now time.Time) (int, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var cap int
+	if cfg, ok := s.platformConfigs[platform]; ok {
+		cap = cfg.DailyCap
+	} else if platform == "claude" {
+		cap = s.ClaudeDailyCap
+	} else {
+		cap = s.CopilotDailyCap
+	}
+
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	count := 0
+	for _, t := range s.dispatches[platform] {
+		if t.After(startOfDay) {
+			count++
+		}
+	}
+	return count, cap
+}
+
 func (s *StaggerTracker) IsUnderDailyCap(platform string, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

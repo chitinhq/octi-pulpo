@@ -10,13 +10,18 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/chitinhq/octi-pulpo/internal/coordination"
+	"github.com/chitinhq/octi-pulpo/internal/flow"
 	"github.com/chitinhq/octi-pulpo/internal/routing"
 	"github.com/chitinhq/octi-pulpo/internal/sprint"
 	"github.com/chitinhq/octi-pulpo/internal/standup"
 )
+
+// brainTickCounter counts Tick invocations for telemetry ordering.
+var brainTickCounter uint64
 
 // Constraint represents the single most important bottleneck in the system.
 type Constraint struct {
@@ -185,6 +190,18 @@ func (b *Brain) Run(ctx context.Context) error {
 
 // Tick runs a single evaluation cycle.
 func (b *Brain) Tick(ctx context.Context) {
+	tickNum := atomic.AddUint64(&brainTickCounter, 1)
+	tickStart := time.Now()
+	flow.Start("swarm.brain.tick", map[string]interface{}{
+		"tick_number": tickNum,
+	})
+	defer func() {
+		flow.Complete("swarm.brain.tick", tickStart, map[string]interface{}{
+			"tick_number": tickNum,
+			"duration_ms": time.Since(tickStart).Milliseconds(),
+		})
+	}()
+
 	// 1. Sync sprint store every 5 minutes (rate limit friendly)
 	b.maybeSyncSprint(ctx)
 
@@ -498,21 +515,62 @@ func (b *Brain) configDrivenDispatch(ctx context.Context) {
 	for _, name := range cfg.Priority {
 		entry := cfg.Platforms[name]
 		if !entry.Enabled {
+			flow.Emit("swarm.brain.platform_reject", flow.StatusCompleted, map[string]interface{}{
+				"platform": name,
+				"gate":     "enabled",
+				"reason":   "platform disabled",
+			})
 			continue
 		}
 		if !entry.AcceptsQueue(queueName) {
+			flow.Emit("swarm.brain.platform_reject", flow.StatusCompleted, map[string]interface{}{
+				"platform": name,
+				"gate":     "queue",
+				"reason":   "does not accept queue " + queueName,
+			})
 			continue
 		}
 		if !b.stagger.IsAvailable(name, now) {
+			remaining := b.stagger.RemainingCooldown(name, now)
+			flow.Emit("swarm.brain.cooldown", flow.StatusCompleted, map[string]interface{}{
+				"platform":          name,
+				"remaining_seconds": int64(remaining.Seconds()),
+			})
+			flow.Emit("swarm.brain.platform_reject", flow.StatusCompleted, map[string]interface{}{
+				"platform": name,
+				"gate":     "capacity",
+				"reason":   "cooldown active",
+			})
 			continue
 		}
 		if !b.stagger.IsUnderDailyCap(name, now) {
+			dispatched, cap := b.stagger.DispatchedToday(name, now)
+			flow.Emit("swarm.brain.daily_cap", flow.StatusCompleted, map[string]interface{}{
+				"platform":         name,
+				"dispatched_today": dispatched,
+				"cap":              cap,
+			})
+			flow.Emit("swarm.brain.platform_reject", flow.StatusCompleted, map[string]interface{}{
+				"platform": name,
+				"gate":     "budget",
+				"reason":   "daily cap reached",
+			})
 			continue
 		}
 		chosenPlatform = name
 		chosenModel = entry.Model
 		break
 	}
+
+	// Emit queue_select summarizing this tick's selection.
+	flow.Emit("swarm.brain.queue_select", flow.StatusCompleted, map[string]interface{}{
+		"queue_picked":   chosenPlatform,
+		"target_queue":   queueName,
+		"intake_depth":   queueCounts[QueueIntake],
+		"build_depth":    queueCounts[QueueBuild],
+		"validate_depth": queueCounts[QueueValidate],
+		"groom_depth":    queueCounts[QueueGroom],
+	})
 
 	if chosenPlatform == "" {
 		// No platform matched — record rejection.

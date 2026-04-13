@@ -3,10 +3,13 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/chitinhq/octi-pulpo/internal/flow"
 )
 
 const defaultSkipThreshold = 3
@@ -77,8 +80,10 @@ func (s *SkipList) RecordRejection(issueKey string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	before := s.rejections[issueKey]
 	s.rejections[issueKey]++
-	if s.rejections[issueKey] >= s.Threshold {
+	after := s.rejections[issueKey]
+	if after >= s.Threshold && before < s.Threshold {
 		now := time.Now()
 		entry := SkipEntry{
 			AddedAt:   now,
@@ -87,7 +92,22 @@ func (s *SkipList) RecordRejection(issueKey string) {
 		}
 		s.skipped[issueKey] = entry
 		s.persistEntry(issueKey, entry)
+		repo, issue := splitIssueKey(issueKey)
+		flow.Emit("swarm.brain.skip_list.add", flow.StatusCompleted, map[string]interface{}{
+			"repo":              repo,
+			"issue":             issue,
+			"skip_count_before": before,
+			"skip_count_after":  after,
+		})
 	}
+}
+
+// splitIssueKey splits "repo#123" into repo and issue number.
+func splitIssueKey(key string) (string, string) {
+	if idx := strings.LastIndex(key, "#"); idx >= 0 {
+		return key[:idx], key[idx+1:]
+	}
+	return key, ""
 }
 
 // SkipFor immediately adds an issue to the skip list with a custom TTL and
@@ -139,6 +159,7 @@ func (s *SkipList) IsSkipped(issueKey string) bool {
 			key := fmt.Sprintf("%s:skip-list", s.namespace)
 			s.rdb.ZRem(ctx, key, issueKey)
 		}
+		emitSkipRemove(issueKey, "ttl")
 		return false
 	}
 	return true
@@ -158,7 +179,7 @@ func (s *SkipList) SkipReason(issueKey string) string {
 // Clear removes an issue from the skip list and resets its rejection counter.
 func (s *SkipList) Clear(issueKey string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	_, wasSkipped := s.skipped[issueKey]
 	delete(s.skipped, issueKey)
 	delete(s.rejections, issueKey)
 	if s.rdb != nil {
@@ -166,6 +187,20 @@ func (s *SkipList) Clear(issueKey string) {
 		key := fmt.Sprintf("%s:skip-list", s.namespace)
 		s.rdb.ZRem(ctx, key, issueKey)
 	}
+	s.mu.Unlock()
+	if wasSkipped {
+		emitSkipRemove(issueKey, "manual")
+	}
+}
+
+// emitSkipRemove sends a flow event for a skip-list removal.
+func emitSkipRemove(issueKey, trigger string) {
+	repo, issue := splitIssueKey(issueKey)
+	flow.Emit("swarm.brain.skip_list.remove", flow.StatusCompleted, map[string]interface{}{
+		"repo":    repo,
+		"issue":   issue,
+		"trigger": trigger,
+	})
 }
 
 // ClearAll removes all entries from the skip list.
@@ -184,18 +219,23 @@ func (s *SkipList) ClearAll() {
 // ExpireOld removes entries whose per-entry ExpiresAt has passed.
 func (s *SkipList) ExpireOld() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	now := time.Now()
+	var expired []string
 	for k, entry := range s.skipped {
 		if now.After(entry.ExpiresAt) {
 			delete(s.skipped, k)
 			delete(s.rejections, k)
+			expired = append(expired, k)
 		}
 	}
 	if s.rdb != nil {
 		ctx := context.Background()
 		key := fmt.Sprintf("%s:skip-list", s.namespace)
 		s.rdb.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%d", now.Unix()))
+	}
+	s.mu.Unlock()
+	for _, k := range expired {
+		emitSkipRemove(k, "ttl")
 	}
 }
 
