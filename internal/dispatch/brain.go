@@ -23,6 +23,18 @@ import (
 // brainTickCounter counts Tick invocations for telemetry ordering.
 var brainTickCounter uint64
 
+// brainStartTime is the process start time, used for driver heartbeat uptime.
+var brainStartTime = time.Now()
+
+// hostnameOrUnknown returns the OS hostname, or "unknown" on failure.
+func hostnameOrUnknown() string {
+	h, err := os.Hostname()
+	if err != nil || h == "" {
+		return "unknown"
+	}
+	return h
+}
+
 // Constraint represents the single most important bottleneck in the system.
 type Constraint struct {
 	Type        string // "all_drivers_down", "p0_bugs", "idle_agents", "stale_prs", "stale_approved_prs", "none"
@@ -201,6 +213,17 @@ func (b *Brain) Tick(ctx context.Context) {
 			"duration_ms": time.Since(tickStart).Milliseconds(),
 		})
 	}()
+
+	// Emit driver heartbeat so `sentinel drivers` (chitinhq/sentinel#43)
+	// sees octi as a live fleet member. Tool field becomes
+	// "flow.driver.octi.heartbeat" — flow.Emit prepends "flow.".
+	flow.Emit("driver.octi.heartbeat", flow.StatusCompleted, map[string]interface{}{
+		"host":           hostnameOrUnknown(),
+		"pid":            os.Getpid(),
+		"uptime_seconds": time.Since(brainStartTime).Seconds(),
+		"tick_number":    tickNum,
+		"tick_interval":  b.tickInterval.String(),
+	})
 
 	// 1. Sync sprint store every 5 minutes (rate limit friendly)
 	b.maybeSyncSprint(ctx)
