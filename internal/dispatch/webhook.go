@@ -334,6 +334,27 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		go ws.copilotFix.ResetAttempts(context.Background(), repo, prNumber)
 	}
 
+	ctx := context.Background()
+
+	// workflow_run completed: release per-agent claim on ANY terminal conclusion
+	// (success/failure/cancelled/skipped/timed_out/action_required/stale/neutral).
+	// Fixes chitinhq/octi#200 where `skipped` runs leaked claims until TTL.
+	if githubEvent == "workflow_run" && action == "completed" {
+		released, agent, conclusion := ws.HandleWorkflowRunCompleted(ctx, payload)
+		if released {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok":         true,
+				"action":     "claim_released",
+				"agent":      agent,
+				"conclusion": conclusion,
+			})
+			return
+		}
+		// Fall through on non-terminal/unknown — may still parse as CI event.
+	}
+
 	// Convert GitHub event to our Event type
 	event := ws.parseGitHubEvent(githubEvent, action, repo, payload)
 	if event == nil {
@@ -342,8 +363,6 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "action": "ignored"})
 		return
 	}
-
-	ctx := context.Background()
 
 	// Issue triage: classify via Claude API on this box, then label
 	if event.Type == EventIssueOpened && ws.triageHandler != nil {
