@@ -60,23 +60,75 @@ func (e *Engine) ClaimTask(ctx context.Context, agentID, task string, ttlSeconds
 	return claim, err
 }
 
+// defaultClaimTTLSeconds is used to prune zset members whose embedded TTL is
+// missing or non-positive (defensive fallback for legacy / malformed claims).
+const defaultClaimTTLSeconds = 900
+
 // ActiveClaims returns all non-expired claims across the swarm.
+//
+// Lazy-prune (issue #206): the underlying `active-claims` zset has no per-member
+// TTL — when a holder dies mid-work without calling ReleaseClaim, the entry
+// wedged dispatch forever. We now ZREM any member whose score (claimed-at
+// UnixMilli) plus its embedded TTL is in the past relative to the Redis server
+// clock, AND whose `claim:<agentID>` TTL key is gone. Server time is used so
+// that clock skew between octi-pulpo and Redis can't keep dead members alive.
 func (e *Engine) ActiveClaims(ctx context.Context) ([]Claim, error) {
-	raw, err := e.rdb.ZRevRange(ctx, e.key("active-claims"), 0, 50).Result()
+	zkey := e.key("active-claims")
+	raw, err := e.rdb.ZRangeByScoreWithScores(ctx, zkey, &redis.ZRangeBy{
+		Min: "-inf",
+		Max: "+inf",
+	}).Result()
 	if err != nil {
 		return nil, err
 	}
+
+	// Use Redis server time to avoid local clock skew.
+	nowMilli := time.Now().UnixMilli()
+	if t, err := e.rdb.Time(ctx).Result(); err == nil {
+		nowMilli = t.UnixMilli()
+	}
+
 	var claims []Claim
-	for _, r := range raw {
+	var stale []interface{}
+	for _, z := range raw {
+		member, _ := z.Member.(string)
 		var c Claim
-		if err := json.Unmarshal([]byte(r), &c); err != nil {
+		if err := json.Unmarshal([]byte(member), &c); err != nil {
+			// unparseable garbage — prune.
+			stale = append(stale, member)
 			continue
 		}
-		// Check if the claim TTL key still exists
-		exists, _ := e.rdb.Exists(ctx, e.key("claim:"+c.AgentID)).Result()
-		if exists > 0 {
-			claims = append(claims, c)
+		ttl := c.TTLSeconds
+		if ttl <= 0 {
+			ttl = defaultClaimTTLSeconds
 		}
+		expiresAtMilli := int64(z.Score) + int64(ttl)*1000
+
+		// The `claim:<agentID>` SET key has its own Redis TTL; if it is gone,
+		// the holder either released or the TTL fired. Treat as absent.
+		exists, _ := e.rdb.Exists(ctx, e.key("claim:"+c.AgentID)).Result()
+
+		if exists == 0 || expiresAtMilli < nowMilli {
+			stale = append(stale, member)
+			continue
+		}
+		claims = append(claims, c)
+	}
+
+	if len(stale) > 0 {
+		// Best-effort prune; failures here must not break dispatch.
+		_ = e.rdb.ZRem(ctx, zkey, stale...).Err()
+	}
+
+	// Preserve previous "newest first, capped at 50" semantics.
+	if len(claims) > 1 {
+		// raw was ascending by score; reverse and cap.
+		for i, j := 0, len(claims)-1; i < j; i, j = i+1, j-1 {
+			claims[i], claims[j] = claims[j], claims[i]
+		}
+	}
+	if len(claims) > 50 {
+		claims = claims[:50]
 	}
 	return claims, nil
 }
