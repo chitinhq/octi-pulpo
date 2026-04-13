@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/chitinhq/octi-pulpo/internal/flow"
 	"github.com/chitinhq/octi-pulpo/internal/learner"
 )
 
@@ -75,7 +76,11 @@ type copilotCompletionResponse struct {
 }
 
 // Dispatch sends a completion request to Copilot SDK and returns the result.
-func (c *CopilotAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult, error) {
+func (c *CopilotAdapter) Dispatch(ctx context.Context, task *Task) (retResult *AdapterResult, retErr error) {
+	defer flow.Span("swarm.dispatch.copilot", map[string]interface{}{
+		"task_id": task.ID, "type": task.Type, "repo": task.Repo, "priority": task.Priority,
+	})(&retErr)
+
 	ctx, cancel := context.WithTimeout(ctx, copilotTimeout)
 	defer cancel()
 

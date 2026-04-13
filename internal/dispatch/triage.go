@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chitinhq/octi-pulpo/internal/budget"
+	"github.com/chitinhq/octi-pulpo/internal/flow"
 )
 
 // TriageResult is the outcome of classifying an issue.
@@ -80,7 +81,11 @@ func NewTriageHandler(ghToken, apiKey, model string) *TriageHandler {
 }
 
 // HandleIssue triages a newly opened issue: classify → label → comment.
-func (t *TriageHandler) HandleIssue(ctx context.Context, repo string, issueNumber int, title, body string, labels []string) (*TriageResult, error) {
+func (t *TriageHandler) HandleIssue(ctx context.Context, repo string, issueNumber int, title, body string, labels []string) (retResult *TriageResult, retErr error) {
+	defer flow.Span("swarm.triage", map[string]interface{}{
+		"repo": repo, "issue": issueNumber,
+	})(&retErr)
+
 	// Skip if already triaged
 	for _, l := range labels {
 		if strings.HasPrefix(l, "tier:") {
