@@ -979,6 +979,9 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 		if args.Prompt == "" {
 			return errorResp(req.ID, -32602, "prompt is required")
 		}
+		if err := dispatch.ValidatePreferredDriver(args.PreferredDriver); err != nil {
+			return errorResp(req.ID, -32602, err.Error())
+		}
 		adapter := s.promptCLIAdapter
 		if adapter == nil {
 			adapter = dispatch.NewPromptCLIAdapter()

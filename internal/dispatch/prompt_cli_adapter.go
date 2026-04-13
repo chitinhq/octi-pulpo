@@ -14,10 +14,29 @@ import (
 const DefaultPromptCLITimeout = 120 * time.Second
 
 // PromptCLIRunner executes a CLI subprocess and returns its combined stdout.
-// The prompt is delivered on stdin to avoid shell-injection via argv.
+// The prompt is passed via argv; this is safe because exec.Command does not
+// spawn a shell, so no shell interpolation/injection is possible.
 // Injected in tests to exercise selection/timeout/fallback logic without
 // real subprocesses.
 type PromptCLIRunner func(ctx context.Context, driver, binary, systemPrompt, prompt string) (stdout []byte, err error)
+
+// AllowedDrivers is the allowlist of accepted driver names. Unknown values
+// are rejected at the boundary to prevent arbitrary-binary execution via a
+// user-controlled `preferred_driver` falling through to a default case.
+var AllowedDrivers = map[string]bool{
+	"copilot":     true,
+	"codex":       true,
+	"claude-code": true,
+	"":            true, // empty → use default fallback chain
+}
+
+// ValidatePreferredDriver returns an error if driver is not on the allowlist.
+func ValidatePreferredDriver(driver string) error {
+	if !AllowedDrivers[driver] {
+		return fmt.Errorf("invalid preferred_driver %q: allowed values are copilot, codex, claude-code, or empty", driver)
+	}
+	return nil
+}
 
 // PromptCLIRequest is a freeform prompt-to-CLI dispatch input.
 type PromptCLIRequest struct {
@@ -38,7 +57,8 @@ type PromptCLIResult struct {
 // PromptCLIAdapter dispatches a freeform prompt to a local CLI agent
 // (Copilot CLI, Codex, or Claude Code) without requiring a git worktree
 // or an API key. It picks a driver by simple fallback policy and executes
-// one subprocess with stdin-delivered prompt.
+// one subprocess, passing the prompt via argv (safe under exec.Command,
+// which does not spawn a shell).
 type PromptCLIAdapter struct {
 	// DriverOrder overrides the default fallback chain when non-empty.
 	DriverOrder []string
@@ -127,22 +147,36 @@ func (a *PromptCLIAdapter) Dispatch(ctx context.Context, req *PromptCLIRequest) 
 		return res
 	}
 
+	if err := ValidatePreferredDriver(req.PreferredDriver); err != nil {
+		res.Error = err.Error()
+		res.DurationMS = time.Since(start).Milliseconds()
+		return res
+	}
+
 	timeout := req.Timeout
 	if timeout <= 0 {
 		timeout = DefaultPromptCLITimeout
 	}
+	// Compute a single cumulative deadline shared across all fallback
+	// candidates so that N drivers × timeout can never multiply into
+	// N*timeout worst-case runtime.
+	deadline := time.Now().Add(timeout)
 
 	drivers := a.driversToTry(req.PreferredDriver)
 
 	var lastErr error
 	for _, driver := range drivers {
+		if time.Now().After(deadline) {
+			lastErr = fmt.Errorf("timeout: cumulative deadline exceeded before trying %s", driver)
+			break
+		}
 		bin := a.binaryFor(driver)
 		if _, err := a.lookPath(bin); err != nil {
 			lastErr = fmt.Errorf("%s: not installed (%s)", driver, bin)
 			continue
 		}
 
-		cctx, cancel := context.WithTimeout(ctx, timeout)
+		cctx, cancel := context.WithDeadline(ctx, deadline)
 		runner := a.Runner
 		if runner == nil {
 			runner = realPromptCLIRunner
@@ -152,6 +186,10 @@ func (a *PromptCLIAdapter) Dispatch(ctx context.Context, req *PromptCLIRequest) 
 
 		if err != nil {
 			lastErr = fmt.Errorf("%s: %w", driver, err)
+			// If the shared deadline fired, stop trying further drivers.
+			if cctx.Err() == context.DeadlineExceeded || time.Now().After(deadline) {
+				break
+			}
 			// Treat transient errors as a reason to fall back.
 			continue
 		}
@@ -171,9 +209,18 @@ func (a *PromptCLIAdapter) Dispatch(ctx context.Context, req *PromptCLIRequest) 
 }
 
 // realPromptCLIRunner invokes the real CLI subprocess. The prompt is
-// written to the process stdin to avoid argv/shell injection risk.
+// passed via argv; this is safe because exec.Command does not spawn a
+// shell, so there is no shell interpolation. Driver names are validated
+// against AllowedDrivers at the Dispatch boundary so buildPromptCLIArgs
+// will never receive an unknown driver here.
 func realPromptCLIRunner(ctx context.Context, driver, binary, systemPrompt, prompt string) ([]byte, error) {
+	if !AllowedDrivers[driver] || driver == "" {
+		return nil, fmt.Errorf("refusing to exec unknown driver %q", driver)
+	}
 	args, stdinPayload := buildPromptCLIArgs(driver, systemPrompt, prompt)
+	if len(args) == 0 {
+		return nil, fmt.Errorf("refusing to exec driver %q with empty args", driver)
+	}
 
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Env = os.Environ()
@@ -197,7 +244,9 @@ func realPromptCLIRunner(ctx context.Context, driver, binary, systemPrompt, prom
 }
 
 // buildPromptCLIArgs returns (args, stdin) for a driver. The prompt is
-// delivered on stdin where possible to avoid shell injection.
+// passed via argv, which is safe because exec.Command does not spawn a
+// shell. Unknown drivers return (nil, "") and MUST be rejected by the
+// caller — never exec'd.
 func buildPromptCLIArgs(driver, systemPrompt, prompt string) ([]string, string) {
 	switch driver {
 	case "copilot":
@@ -221,6 +270,7 @@ func buildPromptCLIArgs(driver, systemPrompt, prompt string) ([]string, string) 
 		}
 		return args, ""
 	}
-	// Unknown driver: pass prompt on stdin as a safe default.
-	return []string{}, prompt
+	// Unknown driver: refuse to build any args. Callers must validate
+	// against AllowedDrivers before reaching here.
+	return nil, ""
 }
