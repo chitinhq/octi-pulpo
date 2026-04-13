@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+
+	"github.com/chitinhq/octi-pulpo/internal/flow"
 )
 
 const defaultGHBaseURL = "https://api.github.com"
@@ -55,7 +57,11 @@ type ghClientPayload struct {
 
 // Dispatch POSTs a repository_dispatch event to GitHub. On 204 the task is
 // considered queued — the actual workflow result is asynchronous.
-func (g *GHActionsAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult, error) {
+func (g *GHActionsAdapter) Dispatch(ctx context.Context, task *Task) (retResult *AdapterResult, retErr error) {
+	defer flow.Span("swarm.dispatch.ghactions", map[string]interface{}{
+		"task_id": task.ID, "type": task.Type, "repo": task.Repo, "priority": task.Priority,
+	})(&retErr)
+
 	payload := ghDispatchPayload{
 		EventType: "octi-pulpo-dispatch",
 		ClientPayload: ghClientPayload{

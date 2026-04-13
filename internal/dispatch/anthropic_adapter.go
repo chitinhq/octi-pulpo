@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/chitinhq/octi-pulpo/internal/flow"
 	"github.com/chitinhq/octi-pulpo/internal/learner"
 )
 
@@ -55,7 +56,11 @@ func (a *AnthropicAdapter) CanAccept(_ *Task) bool {
 // Dispatch runs `shellforge agent --provider anthropic "<prompt>"` as a
 // subprocess and returns the captured output. A 5-minute timeout is applied
 // via the derived context.
-func (a *AnthropicAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResult, error) {
+func (a *AnthropicAdapter) Dispatch(ctx context.Context, task *Task) (retResult *AdapterResult, retErr error) {
+	defer flow.Span("swarm.dispatch.anthropic", map[string]interface{}{
+		"task_id": task.ID, "type": task.Type, "repo": task.Repo, "priority": task.Priority,
+	})(&retErr)
+
 	ctx, cancel := context.WithTimeout(ctx, anthropicTimeout)
 	defer cancel()
 

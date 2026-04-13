@@ -9,6 +9,7 @@ import (
 
 	"github.com/chitinhq/octi-pulpo/internal/budget"
 	"github.com/chitinhq/octi-pulpo/internal/coordination"
+	"github.com/chitinhq/octi-pulpo/internal/flow"
 	"github.com/chitinhq/octi-pulpo/internal/presence"
 	"github.com/chitinhq/octi-pulpo/internal/routing"
 	"github.com/redis/go-redis/v9"
@@ -79,7 +80,11 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event Event, agentName string
 // DispatchBudget is like Dispatch but accepts an explicit budget level ("low", "medium", "high").
 // Use this when you need to override the automatic dynamic budget — e.g. for API-tier burst
 // capacity via a manual MCP trigger, or in tests that need deterministic routing.
-func (d *Dispatcher) DispatchBudget(ctx context.Context, event Event, agentName string, priority int, budget string) (DispatchResult, error) {
+func (d *Dispatcher) DispatchBudget(ctx context.Context, event Event, agentName string, priority int, budget string) (retResult DispatchResult, retErr error) {
+	defer flow.Span("swarm.dispatch", map[string]interface{}{
+		"agent": agentName, "event_type": event.Type, "priority": priority, "budget": budget,
+	})(&retErr)
+
 	now := time.Now().UTC()
 	result := DispatchResult{
 		Agent:     agentName,
