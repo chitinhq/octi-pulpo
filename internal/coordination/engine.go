@@ -135,8 +135,27 @@ func (e *Engine) ActiveClaims(ctx context.Context) ([]Claim, error) {
 
 // ReleaseClaim explicitly removes an agent's claim before TTL expiry.
 // Called by workers when an agent finishes execution.
+//
+// Fixes #213 (claim-leak): the `active-claims` zset is value-keyed on the
+// full claim JSON blob, so a plain ZREM by claim_id silently no-ops and
+// wedges dispatch. We look up the exact bytes stored under `claim:<agent>`
+// and ZREM that member in the same pipeline as the DEL. If the SET key
+// has already expired we skip the ZREM — ActiveClaims' lazy-prune (#206)
+// will clean the zset member on the next read.
 func (e *Engine) ReleaseClaim(ctx context.Context, agentID string) error {
-	return e.rdb.Del(ctx, e.key("claim:"+agentID)).Err()
+	claimKey := e.key("claim:" + agentID)
+	data, getErr := e.rdb.Get(ctx, claimKey).Bytes()
+	if getErr != nil && getErr != redis.Nil {
+		return fmt.Errorf("get claim for release: %w", getErr)
+	}
+
+	pipe := e.rdb.Pipeline()
+	pipe.Del(ctx, claimKey)
+	if getErr != redis.Nil && len(data) > 0 {
+		pipe.ZRem(ctx, e.key("active-claims"), data)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 // Broadcast sends a signal to the swarm via pub/sub.

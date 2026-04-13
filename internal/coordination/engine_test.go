@@ -316,6 +316,60 @@ func TestActiveClaims_LegacyMemberMissingTTLUsesDefault(t *testing.T) {
 	}
 }
 
+// TestReleaseClaim_RemovesZsetMember covers issue #213: ReleaseClaim used to
+// only DEL the `claim:<agent>` SET key and never ZREM the corresponding
+// value-keyed member from `octi:active-claims`, wedging dispatch with
+// phantom claims even on clean worker shutdown.
+func TestReleaseClaim_RemovesZsetMember(t *testing.T) {
+	e, ctx := testSetup(t)
+	zkey := e.key("active-claims")
+
+	if _, err := e.ClaimTask(ctx, "leak-agent", "ship the fix", 300); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+
+	if n, _ := e.rdb.ZCard(ctx, zkey).Result(); n != 1 {
+		t.Fatalf("pre: want 1 zset member, got %d", n)
+	}
+
+	if err := e.ReleaseClaim(ctx, "leak-agent"); err != nil {
+		t.Fatalf("ReleaseClaim: %v", err)
+	}
+
+	n, err := e.rdb.ZCard(ctx, zkey).Result()
+	if err != nil {
+		t.Fatalf("ZCard: %v", err)
+	}
+	if n != 0 {
+		members, _ := e.rdb.ZRange(ctx, zkey, 0, -1).Result()
+		t.Errorf("expected empty zset after ReleaseClaim, got %d members: %v", n, members)
+	}
+
+	exists, _ := e.rdb.Exists(ctx, e.key("claim:leak-agent")).Result()
+	if exists != 0 {
+		t.Error("claim SET key should be DELeted after ReleaseClaim")
+	}
+}
+
+// TestReleaseClaim_IdempotentAfterTTLExpiry covers the case where the
+// `claim:<agent>` SET key already expired before ReleaseClaim runs. The
+// call must still succeed (no error) and must not attempt to ZREM a stale
+// member we can't look up. Lazy-prune (#206) in ActiveClaims handles the
+// orphaned zset entry on the next read.
+func TestReleaseClaim_IdempotentAfterTTLExpiry(t *testing.T) {
+	e, ctx := testSetup(t)
+
+	// No ClaimTask first — simulate a fully-expired claim.
+	if err := e.ReleaseClaim(ctx, "ghost-agent"); err != nil {
+		t.Fatalf("ReleaseClaim on absent claim should be idempotent: %v", err)
+	}
+
+	// And second call must also succeed.
+	if err := e.ReleaseClaim(ctx, "ghost-agent"); err != nil {
+		t.Fatalf("ReleaseClaim second call: %v", err)
+	}
+}
+
 func TestClose_NoError(t *testing.T) {
 	e, _ := testSetup(t)
 	// Close is called via t.Cleanup, but we verify explicit close works too.
