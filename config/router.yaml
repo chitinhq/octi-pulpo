@@ -1,0 +1,107 @@
+# Cognitive Router v0 rules (octi#196)
+#
+# Semantics:
+#   - rules evaluated in order; first match wins (no scoring in v0)
+#   - empty match fields are wildcards
+#   - path_prefixes matches if ANY touched_path has ANY listed prefix
+#   - if nothing matches, `default` applies
+#
+# Catalogs (for reference — not enforced by v0):
+#   souls:           feynman, turing, shannon, dijkstra, socrates, curie, jared_pleva
+#   body_profiles:   read_only_analyst, debugger, code_editor, repo_operator,
+#                    benchmark_runner, orchestrator
+#   chitin_profiles: diagnostic_strict, repo_standard, protected_repo,
+#                    infra_critical, benchmark_sandbox
+#   modes:           investigate, implement, review, plan
+
+version: 0
+
+default:
+  soul: jared_pleva
+  body_profile: code_editor
+  chitin_profile: repo_standard
+  mode: implement
+
+rules:
+  - id: protected-workflows
+    when:
+      path_prefixes: [".github/workflows", ".github/actions"]
+    assign:
+      soul: turing
+      body_profile: repo_operator
+      chitin_profile: protected_repo
+      mode: implement
+      require_review: true
+
+  - id: infra-critical
+    when:
+      risk: critical
+    assign:
+      soul: dijkstra
+      body_profile: repo_operator
+      chitin_profile: infra_critical
+      mode: implement
+      require_review: true
+
+  - id: debugging
+    when:
+      type: debugging
+    assign:
+      soul: feynman
+      body_profile: debugger
+      chitin_profile: diagnostic_strict
+      mode: investigate
+
+  - id: algorithmic
+    when:
+      type: algorithmic
+    assign:
+      soul: turing
+      body_profile: code_editor
+      chitin_profile: repo_standard
+      mode: implement
+
+  - id: architecture
+    when:
+      type: architecture
+    assign:
+      soul: shannon
+      body_profile: read_only_analyst
+      chitin_profile: repo_standard
+      mode: plan
+
+  - id: telemetry
+    when:
+      type: telemetry
+    assign:
+      soul: shannon
+      body_profile: code_editor
+      chitin_profile: repo_standard
+      mode: implement
+
+  - id: benchmark
+    when:
+      type: benchmark
+    assign:
+      soul: curie
+      body_profile: benchmark_runner
+      chitin_profile: benchmark_sandbox
+      mode: investigate
+
+  - id: refactor
+    when:
+      type: refactor
+    assign:
+      soul: dijkstra
+      body_profile: code_editor
+      chitin_profile: repo_standard
+      mode: implement
+
+  - id: high-ambiguity
+    when:
+      ambiguity: high
+    assign:
+      soul: socrates
+      body_profile: read_only_analyst
+      chitin_profile: repo_standard
+      mode: investigate
