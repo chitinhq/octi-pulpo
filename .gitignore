@@ -13,3 +13,4 @@ server/*-feed.env
 
 # AgentGuard runtime state
 .agentguard/
+scripts/qdrant_ab/embed_cache.json

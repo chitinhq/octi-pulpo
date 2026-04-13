@@ -1,0 +1,80 @@
+# A/B harness gold set for Qdrant semantic vs keyword retrieval (#215).
+#
+# Each entry:
+#   query: natural-language dispatch-style question
+#   expected_ids: list of Redis memory IDs that SHOULD appear in top-3
+#                 (leave empty to skip MRR scoring for that row; the harness
+#                  will still print top-3 samples so you can seed gold IDs).
+#
+# How to populate:
+#   1. Run `go run scripts/qdrant_ab/qdrant_ab.go --dump-sample` to see
+#      example memory IDs + contents.
+#   2. Pick 30 realistic queries you actually run against memory.Recall
+#      (grep `mem.Recall(` in the octi tree; paste the query strings).
+#   3. For each query, manually identify the 1–3 entry IDs that are the
+#      "right" answer. Paste into expected_ids.
+#   4. Re-run the harness without --dump-sample to get MRR@3.
+#
+# Target: 30 queries. Below is the stub with 30 slots.
+
+queries:
+  - query: "how does dispatch handle label state machine"
+    expected_ids: []
+  - query: "redis connection pooling"
+    expected_ids: []
+  - query: "copilot review comments before merge"
+    expected_ids: []
+  - query: "sentinel neon database connection"
+    expected_ids: []
+  - query: "voyage embedding model"
+    expected_ids: []
+  - query: "github webhook handler setup"
+    expected_ids: []
+  - query: "budget tracking for agents"
+    expected_ids: []
+  - query: "claim release on workflow failure"
+    expected_ids: []
+  - query: "tier c issue handling copilot"
+    expected_ids: []
+  - query: "qdrant collection ensure"
+    expected_ids: []
+  - query: "brain dispatch loop leverage"
+    expected_ids: []
+  - query: "squad namespace memory isolation"
+    expected_ids: []
+  - query: "cross-squad recall"
+    expected_ids: []
+  - query: "go test docker ephemeral"
+    expected_ids: []
+  - query: "worktree usage for agents"
+    expected_ids: []
+  - query: "dispatch prompt to CLI MCP tool"
+    expected_ids: []
+  - query: "ntfy notification topic"
+    expected_ids: []
+  - query: "sprint store schema"
+    expected_ids: []
+  - query: "agent identity persona script"
+    expected_ids: []
+  - query: "embedding failures silent"
+    expected_ids: []
+  - query: "rollout chitin kernel version"
+    expected_ids: []
+  - query: "sitrep swarm health"
+    expected_ids: []
+  - query: "hunt session xp rarity"
+    expected_ids: []
+  - query: "soul archetype mapping"
+    expected_ids: []
+  - query: "wiki ingest pipeline"
+    expected_ids: []
+  - query: "graphify knowledge graph"
+    expected_ids: []
+  - query: "leverage constraint analysis"
+    expected_ids: []
+  - query: "openclaw intake pre-gate"
+    expected_ids: []
+  - query: "driver allowlist cumulative deadline"
+    expected_ids: []
+  - query: "active claims zset prune"
+    expected_ids: []
