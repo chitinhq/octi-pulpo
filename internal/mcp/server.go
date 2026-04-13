@@ -14,6 +14,7 @@ import (
 	"github.com/chitinhq/octi-pulpo/internal/budget"
 	"github.com/chitinhq/octi-pulpo/internal/coordination"
 	"github.com/chitinhq/octi-pulpo/internal/dispatch"
+	"github.com/chitinhq/octi-pulpo/internal/mcptrace"
 	"github.com/chitinhq/octi-pulpo/internal/memory"
 	"github.com/chitinhq/octi-pulpo/internal/org"
 	"github.com/chitinhq/octi-pulpo/internal/routing"
@@ -168,7 +169,7 @@ func (s *Server) handle(req Request) Response {
 	}
 }
 
-func (s *Server) handleToolCall(req Request) Response {
+func (s *Server) handleToolCall(req Request) (resp Response) {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -182,6 +183,18 @@ func (s *Server) handleToolCall(req Request) Response {
 	if agentID == "" {
 		agentID = "unknown"
 	}
+
+	// Emit a telemetry event after the tool handler returns. Best-effort —
+	// never blocks the response path. Outcome is inferred from resp.Error.
+	start := time.Now()
+	defer func() {
+		outcome, reason := "allow", ""
+		if resp.Error != nil {
+			outcome = "deny"
+			reason = resp.Error.Message
+		}
+		mcptrace.Emit("octi", agentID, params.Name, outcome, reason, start)
+	}()
 
 	switch params.Name {
 	case "memory_store":
