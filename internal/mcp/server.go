@@ -69,6 +69,7 @@ type Server struct {
 	anthropicAdapter *dispatch.AnthropicAdapter
 	ghActionsAdapter *dispatch.GHActionsAdapter
 	copilotAdapter   *dispatch.CopilotAdapter
+	promptCLIAdapter *dispatch.PromptCLIAdapter
 	rdb              *redis.Client
 	redisNS          string
 }
@@ -130,6 +131,10 @@ func (s *Server) SetAdmissionGate(g *admission.Gate) {
 func (s *Server) SetAnthropicAdapter(a *dispatch.AnthropicAdapter) { s.anthropicAdapter = a }
 func (s *Server) SetGHActionsAdapter(a *dispatch.GHActionsAdapter) { s.ghActionsAdapter = a }
 func (s *Server) SetCopilotAdapter(a *dispatch.CopilotAdapter) { s.copilotAdapter = a }
+
+// SetPromptCLIAdapter enables the dispatch_prompt_to_cli MCP tool.
+// If never called, the handler lazily constructs a default adapter.
+func (s *Server) SetPromptCLIAdapter(a *dispatch.PromptCLIAdapter) { s.promptCLIAdapter = a }
 
 // Serve runs the MCP server on stdio (stdin/stdout JSON-RPC).
 func (s *Server) Serve() error {
@@ -961,6 +966,33 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 		b, _ := json.Marshal(adResult)
 		return textResult(req.ID, string(b))
 
+	case "dispatch_prompt_to_cli":
+		var args struct {
+			Prompt          string `json:"prompt"`
+			PreferredDriver string `json:"preferred_driver"`
+			TimeoutSeconds  int    `json:"timeout_seconds"`
+			SystemPrompt    string `json:"system_prompt"`
+		}
+		if err := json.Unmarshal(params.Arguments, &args); err != nil {
+			return errorResp(req.ID, -32602, fmt.Sprintf("invalid args: %v", err))
+		}
+		if args.Prompt == "" {
+			return errorResp(req.ID, -32602, "prompt is required")
+		}
+		adapter := s.promptCLIAdapter
+		if adapter == nil {
+			adapter = dispatch.NewPromptCLIAdapter()
+		}
+		timeout := time.Duration(args.TimeoutSeconds) * time.Second
+		res := adapter.Dispatch(ctx, &dispatch.PromptCLIRequest{
+			Prompt:          args.Prompt,
+			SystemPrompt:    args.SystemPrompt,
+			PreferredDriver: args.PreferredDriver,
+			Timeout:         timeout,
+		})
+		b, _ := json.Marshal(res)
+		return textResult(req.ID, string(b))
+
 	default:
 		return errorResp(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -1443,6 +1475,20 @@ func toolDefs() []ToolDef {
 					"repo":     map[string]any{"type": "string", "description": "Target repo (owner/name)"},
 					"type":     map[string]any{"type": "string", "description": "Task type: code-gen, bugfix, pr-review, qa, triage"},
 					"priority": map[string]any{"type": "string", "description": "Priority: critical, high, normal, background"},
+				},
+				"required": []string{"prompt"},
+			},
+		},
+		{
+			Name:        "dispatch_prompt_to_cli",
+			Description: "Dispatch a freeform prompt to a local CLI agent (copilot, codex, or claude-code). No API key, no worktree. Picks first available driver with fallback.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"prompt":           map[string]any{"type": "string", "description": "Freeform prompt to send"},
+					"preferred_driver": map[string]any{"type": "string", "description": "copilot | codex | claude-code (optional)"},
+					"timeout_seconds":  map[string]any{"type": "integer", "description": "Timeout in seconds (default 120)"},
+					"system_prompt":    map[string]any{"type": "string", "description": "Optional system prompt appended to the driver's default"},
 				},
 				"required": []string{"prompt"},
 			},
