@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -88,14 +89,18 @@ func (s *Store) Put(ctx context.Context, agentID, content string, topics []strin
 	// Best-effort: index embedding for semantic search.
 	if s.vectorClient != nil && s.embedder != nil {
 		text := content + " " + strings.Join(topics, " ")
-		if vec, embErr := s.embedder.Embed(ctx, text); embErr == nil {
+		if vec, embErr := s.embedder.Embed(ctx, text); embErr != nil {
+			log.Printf("WARN memory.Put: embed failed (collection=%s id=%s agent=%s): %v", s.collectionName(), id, agentID, embErr)
+		} else {
 			payload := map[string]interface{}{
 				"entry_id": id,
 				"agent_id": agentID,
 				"content":  content,
 				"topics":   strings.Join(topics, " "),
 			}
-			_ = s.vectorClient.Upsert(ctx, s.collectionName(), id, vec, payload)
+			if upErr := s.vectorClient.Upsert(ctx, s.collectionName(), id, vec, payload); upErr != nil {
+				log.Printf("WARN memory.Put: qdrant upsert failed (collection=%s id=%s): %v", s.collectionName(), id, upErr)
+			}
 		}
 	}
 
@@ -122,11 +127,13 @@ func (s *Store) Recall(ctx context.Context, query string, limit int) ([]Entry, e
 
 	vec, err := s.embedder.Embed(ctx, query)
 	if err != nil {
+		log.Printf("WARN memory.Recall: embed failed (collection=%s): %v — falling back to keyword", s.collectionName(), err)
 		return kwResults, nil // fallback: embedding unavailable
 	}
 
 	vecHits, err := s.vectorClient.Search(ctx, s.collectionName(), vec, limit)
 	if err != nil {
+		log.Printf("WARN memory.Recall: qdrant search failed (collection=%s): %v — falling back to keyword", s.collectionName(), err)
 		return kwResults, nil // fallback: vector DB unavailable
 	}
 
