@@ -152,11 +152,16 @@ func (a *ClawtaAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResul
 	}
 
 	// Adapter-side git plumbing: push branch and open PR if Clawta produced commits.
+	// Honest-dispatch: Status="completed" requires push + PR create to actually succeed.
+	// If either side-effect fails, downgrade Status so the outer dispatcher reports
+	// Action="failed" and the learner does not ingest a false-positive success.
+	// See: chitinhq/octi#243, chitinhq/octi#245 (sibling fix).
 	if result.Status == "completed" {
 		if hasNewCommits(worktreePath, "origin/"+defaultBranch) {
 			pushCmd := exec.CommandContext(ctx, "git", "push", "-u", "origin", branchName)
 			pushCmd.Dir = worktreePath
 			if pushOut, pushErr := pushCmd.CombinedOutput(); pushErr != nil {
+				result.Status = "failed"
 				result.Error = fmt.Sprintf("push failed: %s: %s", pushErr, string(pushOut))
 			} else {
 				prTitle := truncate(task.Prompt, 60)
@@ -169,6 +174,7 @@ func (a *ClawtaAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResul
 				)
 				prCmd.Dir = worktreePath
 				if prOut, prErr := prCmd.CombinedOutput(); prErr != nil {
+					result.Status = "failed"
 					result.Error = fmt.Sprintf("pr create failed: %s: %s", prErr, string(prOut))
 				} else {
 					result.Output = string(prOut)
