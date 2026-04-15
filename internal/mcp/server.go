@@ -366,6 +366,15 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 		data, _ := json.Marshal(status)
 		return textResult(req.ID, string(data))
 
+	case "swarm_today":
+		var args struct {
+			WindowHours int `json:"window_hours"`
+		}
+		json.Unmarshal(params.Arguments, &args)
+		rep := s.SwarmToday(ctx, args.WindowHours)
+		data, _ := json.Marshal(rep)
+		return textResult(req.ID, rep.Text+"\n"+string(data))
+
 	case "dispatch_trigger":
 		if s.dispatcher == nil {
 			return errorResp(req.ID, -32000, "dispatcher not initialized")
@@ -1508,6 +1517,16 @@ func toolDefs() []ToolDef {
 					"priority": map[string]any{"type": "string", "description": "Priority level"},
 				},
 				"required": []string{"prompt", "repo"},
+			},
+		},
+		{
+			Name:        "swarm_today",
+			Description: "1-screen daily swarm observability view — PRs, issues, tiers, swarm runs, drivers, budget, and alerts for the last N hours. Supersedes dispatch_status + health_report + agent_leaderboard for the daily check-in flow. Returns both JSON structure and a terse human-readable text block.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"window_hours": map[string]any{"type": "integer", "description": "Look-back window in hours (default 24)"},
+				},
 			},
 		},
 	}
