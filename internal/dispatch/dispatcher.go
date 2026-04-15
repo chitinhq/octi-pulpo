@@ -49,27 +49,6 @@ type Dispatcher struct {
 	presUser  string                // user ID for presence checks
 	queueFile string                // ~/.chitin/queue.txt (compatibility bridge)
 	namespace string
-	adapters  []Adapter // execution-surface adapters; picked by Name() against routed driver
-}
-
-// SetAdapters registers adapters that execute a dispatched task on a real
-// surface (HTTP repository_dispatch, Anthropic API, Claude Code CLI, etc.).
-// After route selection, Dispatch() invokes the adapter whose Name() matches
-// the routed driver. This is what makes result.Action="dispatched" mean "an
-// execution surface was actually called" rather than "we enqueued to Redis
-// and hoped." See workspace#408 (silent-loss regression).
-func (d *Dispatcher) SetAdapters(adapters ...Adapter) { d.adapters = adapters }
-
-// selectAdapter returns the registered adapter whose Name() matches driver,
-// or nil if none is registered. Gate between routing ("we picked claude-code")
-// and execution ("we actually called it").
-func (d *Dispatcher) selectAdapter(driver string) Adapter {
-	for _, a := range d.adapters {
-		if a != nil && a.Name() == driver {
-			return a
-		}
-	}
-	return nil
 }
 
 // NewDispatcher creates an event-driven dispatcher.
@@ -232,62 +211,11 @@ func (d *Dispatcher) DispatchBudget(ctx context.Context, event Event, agentName 
 	}
 
 	queueDepth, _ := d.PendingCount(ctx)
+	result.Action = "dispatched"
+	result.Reason = fmt.Sprintf("dispatched via %s (tier: %s, confidence: %.1f)", routeDecision.Driver, routeDecision.Tier, routeDecision.Confidence)
 	result.Driver = routeDecision.Driver
 	result.ClaimID = claim.ClaimID
 	result.QueuePos = queueDepth
-
-	// 5. Actually call the adapter for the routed driver. Until this returns
-	// successfully, we have only *routed* — we have not *dispatched*. Action
-	// "dispatched" must mean an execution surface was invoked and accepted
-	// the task (workspace#408: silent-loss fix).
-	adapter := d.selectAdapter(routeDecision.Driver)
-	if adapter == nil {
-		if len(d.adapters) == 0 {
-			// Legacy path: no adapters registered at all. Preserve the old
-			// queue-only behavior so callers that consume from the Redis
-			// queue directly don't regress. Reason string marks it as
-			// queue-only so observers can distinguish it from HTTP-confirmed
-			// dispatch.
-			result.Action = "dispatched"
-			result.Reason = fmt.Sprintf("queued via %s (tier: %s, confidence: %.1f; no adapter registered)", routeDecision.Driver, routeDecision.Tier, routeDecision.Confidence)
-			d.recordDispatch(ctx, agentName, event, result)
-			return result, nil
-		}
-		// Adapters exist but none matches the routed driver: don't claim
-		// success with no execution surface attached.
-		result.Action = "unroutable"
-		result.Reason = fmt.Sprintf("no adapter registered for driver %q", routeDecision.Driver)
-		d.recordDispatch(ctx, agentName, event, result)
-		return result, nil
-	}
-
-	task := &Task{
-		ID:       fmt.Sprintf("%s-%d", agentName, now.UnixNano()),
-		Type:     string(event.Type),
-		Repo:     event.Repo,
-		Priority: priorityStr(priority),
-	}
-
-	adapterResult, adapterErr := adapter.Dispatch(ctx, task)
-	if adapterErr != nil {
-		result.Action = "failed"
-		result.Reason = fmt.Sprintf("adapter %s dispatch failed: %v", adapter.Name(), adapterErr)
-		d.recordDispatch(ctx, agentName, event, result)
-		return result, nil
-	}
-	if adapterResult != nil && adapterResult.Status == "failed" {
-		errMsg := adapterResult.Error
-		if errMsg == "" {
-			errMsg = "adapter reported failed status"
-		}
-		result.Action = "failed"
-		result.Reason = fmt.Sprintf("adapter %s: %s", adapter.Name(), errMsg)
-		d.recordDispatch(ctx, agentName, event, result)
-		return result, nil
-	}
-
-	result.Action = "dispatched"
-	result.Reason = fmt.Sprintf("dispatched via %s (tier: %s, confidence: %.1f)", routeDecision.Driver, routeDecision.Tier, routeDecision.Confidence)
 
 	d.recordDispatch(ctx, agentName, event, result)
 

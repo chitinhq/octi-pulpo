@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -649,3 +650,96 @@ func TestDispatch_AcceptsExemptEventWithEmptyRepo(t *testing.T) {
 		t.Fatalf("exempt event should not be rejected for empty Repo: %s", result.Reason)
 	}
 }
+// --- Silent-loss regression (workspace#408) ---
+//
+// Before commit 5dc4e27, DispatchBudget set result.Action="dispatched" after
+// routing+enqueue without ever invoking the routed adapter. These subtests
+// pin the contract: action="dispatched" MUST mean the adapter was called.
+
+type silentLossFakeAdapter struct {
+	name      string
+	calls     int
+	lastTask  *Task
+	returnErr error
+	returnRes *AdapterResult
+}
+
+func (f *silentLossFakeAdapter) Name() string                  { return f.name }
+func (f *silentLossFakeAdapter) CanAccept(_ *Task) bool        { return true }
+func (f *silentLossFakeAdapter) Dispatch(_ context.Context, task *Task) (*AdapterResult, error) {
+	f.calls++
+	f.lastTask = task
+	return f.returnRes, f.returnErr
+}
+
+func TestDispatchBudget_CallsAdapter_SilentLossRegression(t *testing.T) {
+	t.Run("happy_path_adapter_invoked", func(t *testing.T) {
+		d, ctx := testSetup(t)
+		fake := &silentLossFakeAdapter{
+			name:      "claude-code",
+			returnRes: &AdapterResult{Status: "completed", Adapter: "claude-code"},
+		}
+		d.SetAdapters(fake)
+
+		event := Event{Type: EventManual, Source: "test", Repo: "chitinhq/octi"}
+		result, err := d.DispatchBudget(ctx, event, "happy-agent", 2, "medium")
+		if err != nil {
+			t.Fatalf("dispatch error: %v", err)
+		}
+		if result.Action != "dispatched" {
+			t.Fatalf("expected action=dispatched, got %s (reason: %s)", result.Action, result.Reason)
+		}
+		// THE key assertion: without this the buggy parent commit passes.
+		if fake.calls != 1 {
+			t.Fatalf("silent-loss regression: expected adapter.Dispatch called exactly once, got %d", fake.calls)
+		}
+		if fake.lastTask == nil || fake.lastTask.Repo != "chitinhq/octi" {
+			t.Fatalf("expected task.Repo=chitinhq/octi, got %+v", fake.lastTask)
+		}
+	})
+
+	t.Run("adapter_error_marks_failed", func(t *testing.T) {
+		d, ctx := testSetup(t)
+		fake := &silentLossFakeAdapter{
+			name:      "claude-code",
+			returnErr: fmt.Errorf("boom: surface unreachable"),
+		}
+		d.SetAdapters(fake)
+
+		event := Event{Type: EventManual, Source: "test", Repo: "chitinhq/octi"}
+		result, err := d.DispatchBudget(ctx, event, "err-agent", 2, "medium")
+		if err != nil {
+			t.Fatalf("dispatch error: %v", err)
+		}
+		if result.Action != "failed" {
+			t.Fatalf("expected action=failed, got %s (reason: %s)", result.Action, result.Reason)
+		}
+		if fake.calls != 1 {
+			t.Fatalf("expected adapter.Dispatch called exactly once, got %d", fake.calls)
+		}
+		if !strings.Contains(result.Reason, "boom: surface unreachable") {
+			t.Fatalf("expected reason to contain adapter error, got: %s", result.Reason)
+		}
+	})
+
+	t.Run("adapters_registered_but_no_match_unroutable", func(t *testing.T) {
+		d, ctx := testSetup(t)
+		// Register an adapter whose Name() does NOT match the routed driver
+		// (testSetup configures claude-code as the only healthy driver).
+		fake := &silentLossFakeAdapter{name: "some-other-driver"}
+		d.SetAdapters(fake)
+
+		event := Event{Type: EventManual, Source: "test", Repo: "chitinhq/octi"}
+		result, err := d.DispatchBudget(ctx, event, "unroutable-agent", 2, "medium")
+		if err != nil {
+			t.Fatalf("dispatch error: %v", err)
+		}
+		if result.Action != "unroutable" {
+			t.Fatalf("expected action=unroutable, got %s (reason: %s)", result.Action, result.Reason)
+		}
+		if fake.calls != 0 {
+			t.Fatalf("expected adapter.Dispatch NOT called (no match), got %d calls", fake.calls)
+		}
+	})
+}
+
