@@ -130,3 +130,30 @@ How to spot this bug class elsewhere in the codebase:
 ## Suspects
 
 (Filled by curie — sibling silent-loss patterns in `internal/`.)
+
+## Suspects — pattern mine (curie, 2026-04-15)
+
+Read-only sweep of `internal/` for the claim-without-execution pattern. Scope:
+any field named `Action` / `Status` / `Result` / `State` set to a success literal
+before the side effect that justifies it has been confirmed.
+
+| file:line | function | suspected success-claim | missing/deferred side-effect | confidence | notes / issue |
+|---|---|---|---|---|---|
+| `internal/dispatch/claude_code_adapter.go:126` | `ClaudeCodeAdapter.Dispatch` | `result.Status = "completed"` | `git push` + `gh pr create` run AFTER the claim; on failure only `result.Error` is populated, Status is not reverted. Outer dispatcher at `dispatcher.go:264` only downgrades on `Status == "failed"`, so `Action="dispatched"` for a run that never reached origin. | **high** | [chitinhq/octi#241](https://github.com/chitinhq/octi/issues/241) |
+| `internal/dispatch/copilot_cli_adapter.go:139` | `CopilotCLIAdapter.Dispatch` | `result.Status = "completed"` | Identical to above — push/PR are best-effort after the Status flip. | **high** | [chitinhq/octi#242](https://github.com/chitinhq/octi/issues/242) |
+| `internal/dispatch/clawta_adapter.go:151` | `ClawtaAdapter.Dispatch` | `result.Status = "completed"` | Identical pattern + secondary contamination: episodic learner at line 186 records the (still "completed") outcome on push failure, teaching it that a prompt succeeded when in truth the work was silently dropped. | **high** | [chitinhq/octi#243](https://github.com/chitinhq/octi/issues/243) |
+| `internal/sprint/store.go:673` | `Store.markClosedItems` | `item.Status = "done"` + `marked++` | `s.rdb.Set(...)` return value ignored. Sibling `tombstoneFromOpenSet:710` DOES check `.Err()` — asymmetric handling is the tell. On Redis flap, caller logs "marked N closed" while persisted state is stale. | **med** | [chitinhq/octi#244](https://github.com/chitinhq/octi/issues/244) |
+| `internal/dispatch/dispatcher.go:237` | `Dispatcher.Dispatch` (legacy path) | `result.Action = "dispatched"` when `len(d.adapters) == 0` | Preserved by the 5dc4e27 fix as an explicit legacy fallback for callers draining the Redis queue directly. Still a claim-without-execution if `adapters` is empty due to *misconfiguration* (as opposed to by-design legacy mode). Reason string marks it, but observers keying on `Action` alone cannot tell. | **low** | flagged only — do NOT touch `dispatcher.go` in this slice; covered by workspace#408. |
+| `internal/dispatch/openclaw_adapter.go:118` | `OpenClawAdapter.Dispatch` | `result.Status = "completed"` | Set AFTER `sendMessage` + `waitForResponse` both return without error. Response is from a Matrix bot — "completed" means "bot replied", not "work shipped". Out-of-scope for this class (it's an API-confirmed reply), but worth knowing for any future strengthening of the contract. | **low** | informational only. |
+| `internal/dispatch/anthropic_adapter.go:106`, `deepseek_adapter.go:117`, `copilot_adapter.go:155` | adapter `Dispatch` | `result.Status = "completed"` | All three set Status AFTER their HTTP/subprocess call succeeds and the response is decoded/validated. No missing side effect. | — | clean, listed for completeness. |
+
+**Totals:** 3 high, 1 med, 2 low, 3 cleared. 4 issues filed (#241–#244).
+
+**Headline finding:** the three CLI-agent adapters (claude_code, copilot_cli,
+clawta) all carry the same shape of bug the dispatcher just fixed: `Status =
+"completed"` is set on CLI exit 0, and the follow-up `git push` / `gh pr
+create` are best-effort. When push fails, `Status` stays `"completed"`, the
+outer dispatcher maps it to `Action="dispatched"`, and the branch is deleted
+by `cleanupWorktree` on return — a textbook silent-loss. Same class, three
+more surfaces.
+
