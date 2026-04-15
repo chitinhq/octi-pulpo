@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -241,6 +242,91 @@ func TestClawtaAdapterDispatchFailsGracefully(t *testing.T) {
 	}
 	if result.TaskID != "test-task-001" {
 		t.Errorf("TaskID: want test-task-001, got %s", result.TaskID)
+	}
+}
+
+// TestClawtaAdapterDispatch_HonestDispatch_SilentLossRegression asserts that
+// when the clawta subprocess succeeds (Status transitions to "completed") but
+// the adapter-side git push fails, result.Status is downgraded to "failed".
+// Mirrors PR #245 style (chitinhq/octi#243) — gates success claim on the real
+// side-effect actually landing. Build-fails against the pre-fix shape where
+// push failure only populated result.Error and Status stayed "completed".
+func TestClawtaAdapterDispatch_HonestDispatch_SilentLossRegression(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+
+	// Build a shim PATH with a fake `clawta` that always exits 0 after
+	// creating a commit in cwd. The real `git` is inherited from the system
+	// PATH so push actually runs — it will fail because the remote is a
+	// dangling path (deleted after clone).
+	shimDir := t.TempDir()
+	clawtaShim := filepath.Join(shimDir, "clawta")
+	shim := "#!/bin/sh\n" +
+		"echo 'fake clawta run' > file.txt\n" +
+		"git -c user.email=fake@test -c user.name=Fake add file.txt\n" +
+		"git -c user.email=fake@test -c user.name=Fake commit -m 'fake clawta commit'\n" +
+		"exit 0\n"
+	if err := os.WriteFile(clawtaShim, []byte(shim), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Workspace layout: workspace/<repo-name> is a real git repo with a
+	// remote pointing at a bare repo we will delete, forcing push to fail.
+	ws := t.TempDir()
+	repoName := "silentloss-target"
+	repoPath := filepath.Join(ws, repoName)
+	if err := os.MkdirAll(repoPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	remoteDir := filepath.Join(ws, "remote.git")
+	if err := os.MkdirAll(remoteDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, remoteDir, "init", "--bare")
+
+	// Init local repo with one commit on main and a remote tracking main.
+	mustGit(t, repoPath, "init")
+	mustGit(t, repoPath, "remote", "add", "origin", remoteDir)
+	if err := os.WriteFile(filepath.Join(repoPath, "README"), []byte("init"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, repoPath, "-c", "user.email=t@t.com", "-c", "user.name=T", "add", "README")
+	mustGit(t, repoPath, "-c", "user.email=t@t.com", "-c", "user.name=T", "commit", "-m", "init")
+	mustGit(t, repoPath, "branch", "-M", "main")
+	mustGit(t, repoPath, "push", "origin", "main")
+
+	// Nuke the remote so the adapter-side `git push` fails with a real error.
+	if err := os.RemoveAll(remoteDir); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewClawtaAdapter(clawtaShim, "", "", ws)
+	task := &Task{
+		ID:     "silent-loss-regression-243",
+		Type:   "code-gen",
+		Repo:   "chitinhq/" + repoName,
+		Prompt: "Write hello world",
+	}
+
+	result, err := a.Dispatch(context.Background(), task)
+	if err != nil {
+		t.Fatalf("Dispatch returned unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Dispatch returned nil result")
+	}
+
+	// The lie: pre-fix, push failure only set result.Error and Status stayed
+	// "completed". The honest-dispatch fix must downgrade to "failed".
+	if result.Status != "failed" {
+		t.Errorf("silent-loss regression: push failed but Status=%q (want \"failed\"). "+
+			"Adapter claimed success for work that never reached origin. "+
+			"result.Error=%q", result.Status, result.Error)
+	}
+	if result.Error == "" {
+		t.Error("result.Error: want non-empty push-failure reason, got empty")
+	}
+	if !strings.Contains(result.Error, "push failed") {
+		t.Errorf("result.Error: want contains \"push failed\", got %q", result.Error)
 	}
 }
 
