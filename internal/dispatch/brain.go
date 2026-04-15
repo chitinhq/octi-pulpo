@@ -1395,6 +1395,7 @@ func (b *Brain) executeLeverageAction(ctx context.Context, action LeverageAction
 	event := Event{
 		Type:   EventType("brain.leverage"),
 		Source: "brain",
+		Repo:   action.Repo, // populate top-level so adapter CanAccept() sees it (workspace#408)
 		Payload: map[string]string{
 			"reason":    action.Reason,
 			"issue_num": fmt.Sprintf("%d", action.IssueNum),

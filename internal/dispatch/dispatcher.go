@@ -92,6 +92,20 @@ func (d *Dispatcher) DispatchBudget(ctx context.Context, event Event, agentName 
 		Timestamp: now.Format(time.RFC3339),
 	}
 
+	// 0. Validate: repo-scoped events must carry a non-empty Repo.
+	// Adapter CanAccept() rejects empty-repo dispatches, so such events
+	// evaporate silently at the adapter layer — the silent-loss bug from
+	// workspace#408. Reject loudly here with telemetry instead so the
+	// producer can be located via recent-dispatches. System-wide events
+	// (timer, manual, signal, slack.action, budget.change, completion,
+	// brain.recovery) are exempt — they legitimately have no repo.
+	if event.RequiresRepo() && event.Repo == "" {
+		result.Action = "skipped"
+		result.Reason = fmt.Sprintf("event.Repo empty for repo-scoped type %q (producer bug)", event.Type)
+		d.recordDispatch(ctx, agentName, event, result)
+		return result, fmt.Errorf("dispatch: event.Repo required for event type %q (agent=%s source=%s)", event.Type, agentName, event.Source)
+	}
+
 	// 1. Check cooldown
 	cooldownKey := d.key("cooldown:" + agentName)
 	exists, err := d.rdb.Exists(ctx, cooldownKey).Result()
