@@ -11,7 +11,9 @@ import (
 // isolateProviderEnv clears all provider-selection inputs so a test case can
 // re-assert exactly one. Local-Ollama is skipped by default via
 // CLAWTA_SKIP_LOCAL_OLLAMA=1 — tests that want to exercise the local-Ollama
-// branch must override that explicitly.
+// branch must override that explicitly. DEEPSEEK_API_KEY is also cleared
+// defensively so stray env state on the test host cannot smuggle the
+// retired DeepSeek provider into any assertion.
 func isolateProviderEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("DEEPSEEK_API_KEY", "")
@@ -33,59 +35,59 @@ func TestClawtaAdapterName(t *testing.T) {
 
 func TestClawtaAdapterCanAcceptCodeGen(t *testing.T) {
 	isolateProviderEnv(t)
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "code-gen"}
 	if !a.CanAccept(task) {
-		t.Error("CanAccept(code-gen) with deepseek key: want true, got false")
+		t.Error("CanAccept(code-gen) with ollama-cloud key: want true, got false")
 	}
 }
 
 func TestClawtaAdapterCanAcceptBugfix(t *testing.T) {
 	isolateProviderEnv(t)
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "bugfix"}
 	if !a.CanAccept(task) {
-		t.Error("CanAccept(bugfix) with deepseek key: want true, got false")
+		t.Error("CanAccept(bugfix) with ollama-cloud key: want true, got false")
 	}
 }
 
 func TestClawtaAdapterCanAcceptConfig(t *testing.T) {
 	isolateProviderEnv(t)
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "config"}
 	if !a.CanAccept(task) {
-		t.Error("CanAccept(config) with deepseek key: want true, got false")
+		t.Error("CanAccept(config) with ollama-cloud key: want true, got false")
 	}
 }
 
 func TestClawtaAdapterCanAcceptEvolve(t *testing.T) {
 	isolateProviderEnv(t)
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "evolve"}
 	if !a.CanAccept(task) {
-		t.Error("CanAccept(evolve) with deepseek key: want true, got false")
+		t.Error("CanAccept(evolve) with ollama-cloud key: want true, got false")
 	}
 }
 
 func TestClawtaAdapterCanAcceptEvolveSubTypes(t *testing.T) {
 	isolateProviderEnv(t)
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	for _, typ := range []string{"prompt_config", "tool_addition", "config_change"} {
 		task := &Task{Type: typ}
 		if !a.CanAccept(task) {
-			t.Errorf("CanAccept(%s) with deepseek key: want true, got false", typ)
+			t.Errorf("CanAccept(%s) with ollama-cloud key: want true, got false", typ)
 		}
 	}
 }
 
 func TestClawtaAdapterRejectsPRReview(t *testing.T) {
 	isolateProviderEnv(t)
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "pr-review"}
 	if a.CanAccept(task) {
@@ -95,7 +97,7 @@ func TestClawtaAdapterRejectsPRReview(t *testing.T) {
 
 func TestClawtaAdapterRejectsTriage(t *testing.T) {
 	isolateProviderEnv(t)
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "triage"}
 	if a.CanAccept(task) {
@@ -115,33 +117,24 @@ func TestClawtaAdapterRejectsWithoutAnyProvider(t *testing.T) {
 	}
 }
 
-// ---- Provider selection (3-way) ----
+// ---- Provider selection (2-way: local Ollama → Ollama Cloud) ----
 
-func TestSelectProviderDeepSeekOnly(t *testing.T) {
+// TestSelectProviderDeepSeekRetired verifies that DEEPSEEK_API_KEY alone is
+// NOT sufficient to select a provider — DeepSeek was removed from the T1
+// cascade on 2026-04-15 (provider policy: Ollama Cloud + local GPU only).
+func TestSelectProviderDeepSeekRetired(t *testing.T) {
 	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "ds-key")
-	c := selectProvider()
-	if c == nil {
-		t.Fatal("selectProvider: want non-nil, got nil")
-	}
-	if c.name != "deepseek" {
-		t.Errorf("provider: want deepseek, got %s", c.name)
-	}
-	if c.flag != "deepseek" {
-		t.Errorf("flag: want deepseek, got %s", c.flag)
-	}
-	if c.envKey != "DEEPSEEK_API_KEY" || c.envVal != "ds-key" {
-		t.Errorf("env: want DEEPSEEK_API_KEY=ds-key, got %s=%s", c.envKey, c.envVal)
+	if c := selectProvider(); c != nil {
+		t.Errorf("selectProvider with only DEEPSEEK_API_KEY: want nil (retired), got %+v", c)
 	}
 }
 
-// TestSelectProviderOllamaCloudPreferredOverDeepSeek verifies preference:
-// when both OLLAMA_CLOUD_API_KEY and DEEPSEEK_API_KEY are set (and local
-// ollama is skipped), ollama-cloud wins.
-func TestSelectProviderOllamaCloudPreferredOverDeepSeek(t *testing.T) {
+// TestSelectProviderOllamaCloud verifies selection when OLLAMA_CLOUD_API_KEY
+// is set and local Ollama is unreachable.
+func TestSelectProviderOllamaCloud(t *testing.T) {
 	isolateProviderEnv(t)
 	t.Setenv("OLLAMA_CLOUD_API_KEY", "oc-key")
-	t.Setenv("DEEPSEEK_API_KEY", "ds-key")
 	c := selectProvider()
 	if c == nil {
 		t.Fatal("selectProvider: want non-nil, got nil")
@@ -288,7 +281,7 @@ func TestDetectDefaultBranchMain(t *testing.T) {
 
 func TestClawtaAdapterDispatchFailsGracefully(t *testing.T) {
 	isolateProviderEnv(t)
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "test-key")
 
 	ws := t.TempDir()
 	a := NewClawtaAdapter("clawta-does-not-exist", "", "", ws)

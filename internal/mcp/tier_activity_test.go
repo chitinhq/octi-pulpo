@@ -70,8 +70,8 @@ func TestTierActivitySummary_GroupsByTier(t *testing.T) {
 	if got := sum.Tiers["unknown"].Dispatches; got != 1 {
 		t.Errorf("unknown=%d, want 1", got)
 	}
-	if got := sum.Tiers["cloud"].Dispatches; got != 0 {
-		t.Errorf("cloud=%d, want 0 (T3 not online)", got)
+	if _, present := sum.Tiers["cloud"]; present {
+		t.Errorf("cloud bucket should not be pre-initialized after T3 retirement (2026-04-15)")
 	}
 	if sum.Scanned != 4 {
 		t.Errorf("scanned=%d, want 4", sum.Scanned)

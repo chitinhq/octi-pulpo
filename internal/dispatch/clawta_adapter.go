@@ -14,16 +14,17 @@ import (
 )
 
 const (
-	defaultClawtaModel    = "deepseek-chat"
 	clawtaTimeout         = 10 * time.Minute
 	defaultClawtaBinary   = "clawta"
-	defaultClawtaProvider = "deepseek"
+	defaultClawtaProvider = "ollama-cloud"
 
 	// Ollama Cloud (OpenAI-compatible) — flat $20/mo, wired in openclaw.
 	ollamaCloudBaseURL      = "https://ollama.com/v1"
 	defaultOllamaCloudModel = "gpt-oss:20b"
+	defaultClawtaModel      = defaultOllamaCloudModel
 
-	// Local Ollama — zero-cost fallback.
+	// Local Ollama — zero-cost path. Used when the local daemon is
+	// reachable (e.g. on the dedicated GPU box).
 	localOllamaHost         = "127.0.0.1:11434"
 	defaultLocalOllamaModel = "qwen2.5-coder:7b"
 )
@@ -40,10 +41,11 @@ type ClawtaAdapter struct {
 }
 
 // NewClawtaAdapter creates a ClawtaAdapter. Zero-value strings fall back to
-// defaults: binary="clawta", model="deepseek-chat", provider="deepseek",
+// defaults: binary="clawta", model="gpt-oss:20b", provider="ollama-cloud",
 // workspace="$HOME/workspace". At dispatch time the adapter auto-selects an
-// inference provider (local Ollama → Ollama Cloud → DeepSeek) unless the
-// caller constructed it with an explicit non-default provider override.
+// inference provider (local Ollama → Ollama Cloud) unless the caller
+// constructed it with an explicit non-default provider override. DeepSeek
+// was retired from the T1 worker path — Ollama Cloud + local GPU only.
 func NewClawtaAdapter(binary, model, provider, workspace string) *ClawtaAdapter {
 	if binary == "" {
 		binary = defaultClawtaBinary
@@ -73,7 +75,7 @@ func (a *ClawtaAdapter) SetLearner(l *learner.Learner) { a.learner = l }
 
 // providerChoice describes the concrete provider/model/auth passed to clawta.
 type providerChoice struct {
-	name    string // telemetry label: "ollama-local", "ollama-cloud", "deepseek"
+	name    string // telemetry label: "ollama-local", "ollama-cloud"
 	flag    string // clawta --provider value
 	model   string
 	baseURL string // empty = provider default
@@ -82,11 +84,12 @@ type providerChoice struct {
 }
 
 // selectProvider picks an inference provider in preference order:
-//  1. local Ollama reachable at 127.0.0.1:11434 (free)
+//  1. local Ollama reachable at 127.0.0.1:11434 (free, dedicated GPU box)
 //  2. OLLAMA_CLOUD_API_KEY set (flat $20/mo)
-//  3. DEEPSEEK_API_KEY set (legacy, kept for when wallet refills)
 //
-// Returns nil if none are available.
+// Returns nil if none are available. DeepSeek was retired from this path
+// on 2026-04-15 — provider policy locks T1 workers to Ollama Cloud +
+// local GPU only.
 func selectProvider() *providerChoice {
 	if localOllamaReachable() {
 		return &providerChoice{
@@ -104,15 +107,6 @@ func selectProvider() *providerChoice {
 			baseURL: ollamaCloudBaseURL,
 			envKey:  "OPENAI_API_KEY",
 			envVal:  key,
-		}
-	}
-	if key := os.Getenv("DEEPSEEK_API_KEY"); key != "" {
-		return &providerChoice{
-			name:   "deepseek",
-			flag:   "deepseek",
-			model:  defaultClawtaModel,
-			envKey: "DEEPSEEK_API_KEY",
-			envVal: key,
 		}
 	}
 	return nil
@@ -142,8 +136,8 @@ func envOr(key, fallback string) string {
 }
 
 // CanAccept returns true for code-gen, bugfix, config, and evolve task types
-// when at least one inference provider is available (local Ollama, Ollama
-// Cloud, or DeepSeek).
+// when at least one inference provider is available (local Ollama or
+// Ollama Cloud).
 func (a *ClawtaAdapter) CanAccept(task *Task) bool {
 	if selectProvider() == nil {
 		return false
@@ -171,7 +165,7 @@ func (a *ClawtaAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResul
 	choice := selectProvider()
 	if choice == nil {
 		result.Status = "failed"
-		result.Error = "no inference provider available (need OLLAMA_CLOUD_API_KEY, DEEPSEEK_API_KEY, or local Ollama at 127.0.0.1:11434)"
+		result.Error = "no inference provider available (need OLLAMA_CLOUD_API_KEY or local Ollama at 127.0.0.1:11434)"
 		return result, nil
 	}
 
