@@ -15,10 +15,18 @@ INSTALL_DIR="${INSTALL_DIR:-${HOME}/.chitin/bin}"
 BINARY="${INSTALL_DIR}/octi-pulpo"
 WORKSPACE="${CHITIN_WORKSPACE:-${HOME}/workspace}"
 SETTINGS="${WORKSPACE}/.claude/settings.json"
+# Wrapper resolves GITHUB_TOKEN from gh/env-file so MCP spawns can reach GH.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WRAPPER="${SCRIPT_DIR}/octi-pulpo-mcp.sh"
 
 if [ ! -f "${BINARY}" ]; then
   echo "ERROR: octi-pulpo binary not found at ${BINARY}" >&2
   echo "Run 'make install' or 'make wire-mcp' first." >&2
+  exit 1
+fi
+
+if [ ! -x "${WRAPPER}" ]; then
+  echo "ERROR: MCP wrapper not found or not executable: ${WRAPPER}" >&2
   exit 1
 fi
 
@@ -32,13 +40,16 @@ if ! command -v jq &>/dev/null; then
   exit 1
 fi
 
-# Build the mcpServers entry.
+# Build the mcpServers entry. The wrapper script resolves GITHUB_TOKEN from
+# the user's gh auth / ~/.config/octi/env so the GH adapter can actually probe
+# (bootcheck adapter_reachability flips YELLOW → GREEN).
 MCP_ENTRY=$(cat <<EOF
 {
-  "command": "${BINARY}",
+  "command": "${WRAPPER}",
   "env": {
     "OCTI_REDIS_URL": "redis://localhost:6379",
-    "OCTI_NAMESPACE": "octi"
+    "OCTI_NAMESPACE": "octi",
+    "OCTI_PULPO_BIN": "${BINARY}"
   }
 }
 EOF
