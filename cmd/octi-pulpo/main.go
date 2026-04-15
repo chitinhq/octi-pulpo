@@ -73,6 +73,22 @@ func main() {
 	healthDir := os.Getenv("CHITIN_HEALTH_DIR")
 	router := routing.NewRouter(healthDir) // defaults to ~/.chitin/driver-health/
 
+	// Orphan health sweep: report (and optionally delete) health files for
+	// drivers that are no longer in the driverTiers registry. Ladder Forge II
+	// (2026-04-14) pruned 8 drivers from the router but left their .json files
+	// on disk, where they surfaced in health_report as stale. Default is
+	// log-only; set OCTI_PRUNE_ORPHAN_HEALTH=1 to actually delete.
+	pruneOrphans := os.Getenv("OCTI_PRUNE_ORPHAN_HEALTH") == "1"
+	if orphans, err := router.PruneOrphanHealth(pruneOrphans); err != nil {
+		fmt.Fprintf(os.Stderr, "octi-pulpo: orphan health sweep: %v\n", err)
+	} else if len(orphans) > 0 {
+		if pruneOrphans {
+			fmt.Fprintf(os.Stderr, "octi-pulpo: deleted %d orphan health files: %v\n", len(orphans), orphans)
+		} else {
+			fmt.Fprintf(os.Stderr, "octi-pulpo: WARNING — %d orphan health files in %s: %v (set OCTI_PRUNE_ORPHAN_HEALTH=1 to delete)\n", len(orphans), router.HealthDir(), orphans)
+		}
+	}
+
 	// Set up the event-driven dispatcher
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {

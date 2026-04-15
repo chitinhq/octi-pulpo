@@ -208,6 +208,33 @@ func (r *Router) HealthDir() string {
 	return r.healthDir
 }
 
+// PruneOrphanHealth scans the health directory for files whose driver name is
+// not present in the router's tier map. If delete is true, orphan files are
+// removed from disk; otherwise they are only reported. Returns the list of
+// orphan driver names discovered (regardless of delete flag).
+//
+// Use this on boot to keep ~/.chitin/driver-health/ in sync with the
+// driverTiers registry — pruned drivers (e.g. Ladder Forge II) leave behind
+// stale .json files that surface in health_report and bootcheck as
+// "unknown driver" noise.
+func (r *Router) PruneOrphanHealth(delete bool) ([]string, error) {
+	discovered := DiscoverDrivers(r.healthDir)
+	var orphans []string
+	for _, name := range discovered {
+		if _, known := r.tiers[name]; known {
+			continue
+		}
+		orphans = append(orphans, name)
+		if delete {
+			path := filepath.Join(r.healthDir, name+".json")
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return orphans, fmt.Errorf("remove orphan %s: %w", path, err)
+			}
+		}
+	}
+	return orphans, nil
+}
+
 // ForceClose manually resets a driver circuit to CLOSED with zero failures.
 // Returns an error if no health file exists for the driver (nothing to reset).
 // On success returns the new DriverHealth state.
