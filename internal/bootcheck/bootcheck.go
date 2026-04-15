@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -145,6 +146,14 @@ func checkHealthFresh(ctx context.Context, d Deps, now func() time.Time) Result 
 	}
 	var stale []string
 	for _, h := range report {
+		if h.Name == "" {
+			// Defensive: a corrupt/legacy health file produced an entry with no
+			// driver name. Log and skip so it doesn't surface as a ghost in the
+			// bootcheck output (see workspace#408). Source file should be
+			// cleaned up by hopper's orphan-cleanup pass.
+			log.Printf("bootcheck: skipping health entry with empty driver name in %s (corrupt file; flag for orphan-cleanup)", d.Router.HealthDir())
+			continue
+		}
 		if h.CircuitState != "CLOSED" {
 			continue
 		}

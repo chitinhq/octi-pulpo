@@ -128,6 +128,33 @@ func TestCheckHealthFresh_StaleClosedIsLie(t *testing.T) {
 	}
 }
 
+func TestCheckHealthFresh_EmptyNameStemIsSkipped(t *testing.T) {
+	// Regression: a file literally named ".json" (empty stem) used to surface
+	// as an empty-name ghost entry like " (never-succeeded)" in the bootcheck
+	// output. It must be skipped at the discovery layer.
+	dir := t.TempDir()
+	// Write a corrupt stemless health file and a valid one alongside it.
+	if err := os.WriteFile(dir+"/.json", []byte(`{"state":"CLOSED"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hf := routing.HealthFile{
+		State:       "CLOSED",
+		LastSuccess: time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339),
+		Updated:     time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := routing.WriteDriverHealthFile(dir, "claude-code", hf); err != nil {
+		t.Fatal(err)
+	}
+	r := routing.NewRouter(dir)
+	res := checkHealthFresh(context.Background(), Deps{Router: r}, time.Now)
+	if res.Status != StatusGreen {
+		t.Fatalf("expected green (ghost skipped), got %s: %s", res.Status, res.Message)
+	}
+	if strings.Contains(res.Message, " (never-succeeded)") {
+		t.Fatalf("output leaked empty-name ghost entry: %q", res.Message)
+	}
+}
+
 func TestCheckHealthFresh_NoDrivers(t *testing.T) {
 	r := routing.NewRouter(t.TempDir())
 	res := checkHealthFresh(context.Background(), Deps{Router: r}, time.Now)
