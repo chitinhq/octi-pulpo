@@ -155,6 +155,10 @@ func (s *Server) Serve() error {
 			return fmt.Errorf("decode request: %w", err)
 		}
 
+		// JSON-RPC 2.0: notifications (no id) must not receive a response.
+		if req.ID == nil {
+			continue
+		}
 		resp := s.handle(req)
 		if err := encoder.Encode(resp); err != nil {
 			return fmt.Errorf("encode response: %w", err)
