@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -606,5 +607,45 @@ func TestDispatchBudget_LowBlocksCLI(t *testing.T) {
 	}
 	if result.Budget != "low" {
 		t.Fatalf("expected budget=low in result, got %s", result.Budget)
+	}
+}
+
+// TestDispatch_RejectsRepoScopedEventWithEmptyRepo guards the
+// silent-loss bug from workspace#408: repo-scoped events (pr.*,
+// issue.*, ci.completed, push, brain.leverage) must carry a non-empty
+// Repo or adapter CanAccept() rejects the dispatch invisibly. The
+// dispatcher must fail loudly instead so the producer can be traced.
+func TestDispatch_RejectsRepoScopedEventWithEmptyRepo(t *testing.T) {
+	d, ctx := testSetup(t)
+
+	event := Event{
+		Type:   EventType("brain.leverage"),
+		Source: "brain",
+		// Repo intentionally omitted — this is the bug we're guarding.
+	}
+	result, err := d.Dispatch(ctx, event, "some-agent", 2)
+	if err == nil {
+		t.Fatalf("expected error for empty Repo on repo-scoped event, got nil (action=%s)", result.Action)
+	}
+	if result.Action != "skipped" {
+		t.Fatalf("expected action=skipped, got %s", result.Action)
+	}
+	if !strings.Contains(result.Reason, "Repo empty") {
+		t.Fatalf("expected reason to mention empty Repo, got %q", result.Reason)
+	}
+}
+
+// TestDispatch_AcceptsExemptEventWithEmptyRepo confirms system-wide
+// events (timer, manual, signal) are still allowed without a Repo.
+func TestDispatch_AcceptsExemptEventWithEmptyRepo(t *testing.T) {
+	d, ctx := testSetup(t)
+
+	event := Event{Type: EventTimer, Source: "timer"} // no Repo
+	result, err := d.Dispatch(ctx, event, "kernel-sr", 2)
+	if err != nil {
+		t.Fatalf("expected no error for exempt event, got %v", err)
+	}
+	if result.Action == "skipped" && strings.Contains(result.Reason, "Repo empty") {
+		t.Fatalf("exempt event should not be rejected for empty Repo: %s", result.Reason)
 	}
 }

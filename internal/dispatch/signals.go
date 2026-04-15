@@ -66,6 +66,7 @@ type signalPayload struct {
 	AgentID   string `json:"agent_id"`
 	Type      string `json:"type"`    // completed, blocked, need-help, directive
 	Payload   string `json:"payload"`
+	Repo      string `json:"repo"`    // optional repo context (e.g. "chitinhq/kernel")
 	Timestamp string `json:"timestamp"`
 }
 
@@ -136,6 +137,7 @@ func (sw *SignalWatcher) handleNeedHelp(ctx context.Context, sig signalPayload) 
 	event := Event{
 		Type:   EventSignal,
 		Source: sig.AgentID,
+		Repo:   sig.Repo,
 		Payload: map[string]string{
 			"signal_type":  "need-help",
 			"from_agent":   sig.AgentID,
@@ -164,6 +166,7 @@ func (sw *SignalWatcher) handleBlocked(ctx context.Context, sig signalPayload) {
 	event := Event{
 		Type:   EventSignal,
 		Source: sig.AgentID,
+		Repo:   sig.Repo,
 		Payload: map[string]string{
 			"signal_type":    "blocked",
 			"from_agent":     sig.AgentID,

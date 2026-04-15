@@ -568,6 +568,7 @@ func (ws *WebhookServer) handleTrigger(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Agent    string `json:"agent"`
 		Priority int    `json:"priority"`
+		Repo     string `json:"repo"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -581,6 +582,7 @@ func (ws *WebhookServer) handleTrigger(w http.ResponseWriter, r *http.Request) {
 	event := Event{
 		Type:     EventManual,
 		Source:   "http",
+		Repo:     req.Repo,
 		Priority: req.Priority,
 		Payload:  map[string]string{"triggered_by": "http_api"},
 	}
@@ -605,6 +607,7 @@ func (ws *WebhookServer) handleTimerTrigger(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		Agent    string `json:"agent"`
 		Priority int    `json:"priority"`
+		Repo     string `json:"repo"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -621,6 +624,7 @@ func (ws *WebhookServer) handleTimerTrigger(w http.ResponseWriter, r *http.Reque
 	event := Event{
 		Type:     EventTimer,
 		Source:   "timer",
+		Repo:     req.Repo, // empty for system-wide SR/EM timers; set when scoped
 		Priority: req.Priority,
 		Payload:  map[string]string{"triggered_by": "octi-timer"},
 	}

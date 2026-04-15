@@ -33,6 +33,26 @@ type Event struct {
 	Priority int               `json:"priority"` // 0=critical, 1=high, 2=normal, 3=background
 }
 
+// RequiresRepo returns true if the event type is meaningless without a
+// Repo — adapter CanAccept() rejects empty-repo dispatches, so events
+// missing a Repo evaporate silently. System-wide events (pure timers,
+// backpressure recovery, budget changes, slack meta-commands, raw
+// signals) are exempt. Used by the dispatcher to fail loudly with
+// telemetry instead of letting the dispatch vanish (workspace#408).
+func (e Event) RequiresRepo() bool {
+	switch e.Type {
+	case EventIssueOpened, EventIssueLabeled,
+		EventPROpened, EventPRUpdated, EventPRLabeled,
+		EventCICompleted, EventPush:
+		return true
+	case EventType("brain.leverage"):
+		// brain.leverage always targets a specific repo; empty Repo
+		// means the producer forgot to populate it.
+		return true
+	}
+	return false
+}
+
 // EventRule maps an event pattern to an agent that should handle it.
 type EventRule struct {
 	EventType EventType     // which event triggers this rule
