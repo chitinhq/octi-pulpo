@@ -24,7 +24,12 @@ type TierActivitySummary struct {
 
 // knownTiers is the canonical tier set reported by v0. Buckets are always
 // present (dispatches=0) so clients get a stable shape.
-var knownTiers = []string{"local", "actions", "cloud", "desktop", "human", "unknown"}
+// knownTiers covers the active Ladder Forge surfaces after the 2026-04-15
+// retirement of the old T3 "cloud-scheduled" (RemoteTrigger) bucket. Any
+// legacy records still carrying Tier="cloud" in Redis will be surfaced
+// dynamically in the output (see bucket creation below) but are no longer
+// pre-initialized.
+var knownTiers = []string{"local", "actions", "copilot", "desktop", "human", "unknown"}
 
 // tierActivitySummary scans the last `limit` entries of the dispatch log in
 // Redis namespace `ns` and groups them by tier over the last `windowHours`.

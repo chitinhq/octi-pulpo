@@ -1184,7 +1184,7 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "tier_activity",
-			Description: "Summarize dispatch activity by Ladder Forge tier (local/actions/cloud/desktop/human/unknown) over the last N hours. v0 telemetry — T1 local and T4 desktop report 0 until those tiers come online; legacy entries without a tier field are counted as unknown.",
+			Description: "Summarize dispatch activity by Ladder Forge tier (local/actions/copilot/desktop/human/unknown) over the last N hours. v0 telemetry — T1 local reports 0 until the dedicated GPU box is online; legacy entries without a tier field are counted as unknown. The old T3 'cloud-scheduled' bucket was retired 2026-04-15.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
