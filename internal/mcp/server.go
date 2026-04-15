@@ -282,6 +282,28 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 		}
 		return textResult(req.ID, strings.Join(lines, "\n"))
 
+	case "tier_activity":
+		if s.rdb == nil {
+			return errorResp(req.ID, -32000, "redis not configured")
+		}
+		var args struct {
+			WindowHours int `json:"windowHours"`
+			Limit       int `json:"limit"`
+		}
+		_ = json.Unmarshal(params.Arguments, &args)
+		if args.WindowHours == 0 {
+			args.WindowHours = 24
+		}
+		if args.Limit == 0 {
+			args.Limit = 500
+		}
+		summary, err := tierActivitySummary(ctx, s.rdb, s.redisNS, args.WindowHours, args.Limit)
+		if err != nil {
+			return errorResp(req.ID, -32000, err.Error())
+		}
+		out, _ := json.MarshalIndent(summary, "", "  ")
+		return textResult(req.ID, string(out))
+
 	case "coord_claim":
 		var args struct {
 			Task       string `json:"task"`
@@ -1159,6 +1181,17 @@ func toolDefs() []ToolDef {
 			Name:        "memory_status",
 			Description: "See what other agents in the swarm are currently working on.",
 			InputSchema: map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		},
+		{
+			Name:        "tier_activity",
+			Description: "Summarize dispatch activity by Ladder Forge tier (local/actions/cloud/desktop/human/unknown) over the last N hours. v0 telemetry — T1 local and T4 desktop report 0 until those tiers come online; legacy entries without a tier field are counted as unknown.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"windowHours": map[string]interface{}{"type": "integer", "description": "Lookback window in hours (default 24)."},
+					"limit":       map[string]interface{}{"type": "integer", "description": "Max log entries to scan (default 500)."},
+				},
+			},
 		},
 		{
 			Name:        "coord_claim",

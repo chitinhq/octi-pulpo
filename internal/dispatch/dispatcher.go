@@ -34,7 +34,37 @@ type DispatchRecord struct {
 	Result    string `json:"result"` // action taken
 	Reason    string `json:"reason"`
 	Driver    string `json:"driver"`
+	Tier      string `json:"tier,omitempty"` // Ladder Forge tier: local|actions|cloud|desktop|human|unknown
 	Timestamp string `json:"timestamp"`
+}
+
+// ClassifyTier maps a driver (and event context) to a Ladder Forge tier.
+// v0 rules:
+//   - gh-actions          -> actions
+//   - clawta, openclaw    -> local
+//   - anthropic, remote-* -> cloud
+//   - needs-human relabel -> human
+//   - unknown/blank       -> unknown (T1 local and T4 desktop will report 0 until online)
+func ClassifyTier(driver string, event Event) string {
+	// Human escalation detected via label on issue.labeled events.
+	if event.Type == EventIssueLabeled {
+		if lbl := event.Payload["label"]; lbl == "needs-human" || lbl == "agent:blocked" {
+			return "human"
+		}
+	}
+	switch driver {
+	case "gh-actions", "ghactions", "github-actions":
+		return "actions"
+	case "clawta", "openclaw", "claude-code", "copilot-cli":
+		return "local"
+	case "anthropic", "claude", "remote", "remote-trigger":
+		return "cloud"
+	case "desktop", "claude-desktop":
+		return "desktop"
+	case "":
+		return "unknown"
+	}
+	return "unknown"
 }
 
 // Dispatcher coordinates all agent scheduling based on events.
@@ -402,6 +432,7 @@ func (d *Dispatcher) recordDispatch(ctx context.Context, agentName string, event
 		Result:    result.Action,
 		Reason:    result.Reason,
 		Driver:    result.Driver,
+		Tier:      ClassifyTier(result.Driver, event),
 		Timestamp: result.Timestamp,
 	}
 	data, err := json.Marshal(record)
