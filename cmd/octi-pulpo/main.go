@@ -271,6 +271,15 @@ func main() {
 			clawtaAdapter := dispatch.NewClawtaAdapter(clawtaBinary, "", "", "")
 			clawtaAdapter.SetLearner(taskLearner)
 			brain.SetAdapters(clawtaAdapter, ghActionsAdapter, copilotAdapter, openclawAdapter)
+			// T1 local enablement (turing, 2026-04-15): also register adapters on
+			// the Dispatcher itself so non-brain dispatch paths (timer, webhook,
+			// signal-watcher) invoke a real execution surface for the routed
+			// driver rather than falling through to the legacy queue-only path
+			// that logs Action="dispatched" with "no adapter registered" reason.
+			// Without this, router.Recommend() can pick clawta (tier=local) but
+			// dispatcher.selectAdapter() returns nil and nothing actually runs.
+			// See chitinhq/octi#243 (silent-loss) and the T1 local=0 tracker.
+			dispatcher.SetAdapters(clawtaAdapter, ghActionsAdapter, copilotAdapter, openclawAdapter, anthropicAdapter)
 			if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
 				brain.SetGitHubToken(ghToken)
 			}

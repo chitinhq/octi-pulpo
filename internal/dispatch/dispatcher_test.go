@@ -743,3 +743,86 @@ func TestDispatchBudget_CallsAdapter_SilentLossRegression(t *testing.T) {
 	})
 }
 
+// TestDispatchBudget_T1LocalEndToEnd locks in T1-local routing correctness
+// end-to-end: agent name without code keywords → router picks the TierLocal
+// driver (clawta) → Dispatcher invokes the registered adapter → dispatch-log
+// record carries tier="local" and a non-empty dispatch_id join key.
+//
+// Regression guard for the "local=0" telemetry gap (turing, 2026-04-15): the
+// production dispatcher in main.go previously had no adapters registered, so
+// even when routing correctly picked clawta, the legacy queue-only fallback
+// fired and no real execution surface was invoked. This test is the proof
+// that (a) the router picks local when it should, (b) the adapter is called,
+// and (c) ClassifyTier emits "local" so swarm_today counts the dispatch.
+func TestDispatchBudget_T1LocalEndToEnd(t *testing.T) {
+	d, ctx := testSetup(t)
+
+	// Override the router so clawta is the only TierLocal driver and
+	// the default gh-actions/anthropic entries don't leak in from the
+	// global driverTiers map. Write a healthy file so CircuitState=CLOSED.
+	healthDir := t.TempDir()
+	writeHealthFile(t, healthDir, "clawta", "CLOSED")
+	d.router = routing.NewRouterWithTiers(healthDir, map[string]routing.CostTier{
+		"clawta": routing.TierLocal,
+	})
+
+	fake := &silentLossFakeAdapter{
+		name:      "clawta",
+		returnRes: &AdapterResult{Status: "completed", Adapter: "clawta"},
+	}
+	d.SetAdapters(fake)
+
+	// Agent name deliberately has no code/review/implement keyword so
+	// taskMinTier() returns TierLocal. "kernel-em" matches the real
+	// production event rules (see events.go DefaultRules).
+	event := Event{Type: EventManual, Source: "test", Repo: "chitinhq/octi"}
+	result, err := d.DispatchBudget(ctx, event, "kernel-em", 2, "medium")
+	if err != nil {
+		t.Fatalf("dispatch error: %v", err)
+	}
+
+	// Router should have picked clawta (cheapest local driver, healthy).
+	if result.Driver != "clawta" {
+		t.Fatalf("expected driver=clawta, got %q (reason: %s)", result.Driver, result.Reason)
+	}
+	if result.Action != "dispatched" {
+		t.Fatalf("expected action=dispatched, got %s (reason: %s)", result.Action, result.Reason)
+	}
+	// Adapter actually invoked — no silent-loss on the local path.
+	if fake.calls != 1 {
+		t.Fatalf("expected clawta adapter called once, got %d", fake.calls)
+	}
+	// dispatch_id correlation key populated (octi#257).
+	if result.DispatchID == "" {
+		t.Fatal("expected non-empty DispatchID for cross-sink reconcile")
+	}
+	if fake.lastTask == nil || fake.lastTask.DispatchID != result.DispatchID {
+		t.Fatalf("expected task.DispatchID=%q to match result, got task=%+v",
+			result.DispatchID, fake.lastTask)
+	}
+
+	// Verify the dispatch-log record in Redis carries tier="local" + the
+	// join key — this is what swarm_today/tier_activity consume.
+	records, err := d.RecentDispatches(ctx, 1)
+	if err != nil {
+		t.Fatalf("read dispatch log: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 dispatch-log record, got %d", len(records))
+	}
+	rec := records[0]
+	if rec.Tier != "local" {
+		t.Fatalf("expected tier=local in dispatch-log, got %q", rec.Tier)
+	}
+	if rec.Driver != "clawta" {
+		t.Fatalf("expected driver=clawta in dispatch-log, got %q", rec.Driver)
+	}
+	if rec.DispatchID == "" || rec.DispatchID != result.DispatchID {
+		t.Fatalf("expected dispatch_id=%q in record, got %q",
+			result.DispatchID, rec.DispatchID)
+	}
+	if rec.Result != "dispatched" {
+		t.Fatalf("expected result=dispatched in record, got %q", rec.Result)
+	}
+}
+
