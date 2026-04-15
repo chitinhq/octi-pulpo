@@ -221,7 +221,7 @@ func TestRecommend_SubscriptionTier(t *testing.T) {
 
 func TestRecommend_APITierDriversRegistered(t *testing.T) {
 	// Confirm all expected API tier drivers exist in the global map.
-	for _, name := range []string{"claude-api", "openai-api", "gemini-api"} {
+	for _, name := range []string{"claude-api"} {
 		if tier, ok := driverTiers[name]; !ok {
 			t.Errorf("driver %q missing from driverTiers", name)
 		} else if tier != TierAPI {
@@ -400,13 +400,9 @@ func TestTaskMinTier(t *testing.T) {
 		{"generate briefing", TierSubscription},
 		{"web screenshot", TierSubscription},
 		{"browse the page", TierSubscription},
-		// Browser-driver task keywords (issue #5)
-		{"generate audio-overview", TierSubscription},
-		{"audio overview from documents", TierSubscription},
-		{"podcast briefing", TierSubscription},
-		{"create slide deck", TierSubscription},
-		{"upload document to notebooklm", TierSubscription},
-		{"export to drive", TierSubscription},
+		// Browser-driver-trio keywords (audio-overview, podcast, slide, drive)
+		// were pruned in Ladder Forge II (2026-04-14).
+		{"podcast briefing", TierSubscription}, // still matches "briefing"
 		{"programmatic api-call", TierAPI},
 		{"burst workload", TierAPI},
 		{"simple triage", TierLocal},
@@ -422,19 +418,10 @@ func TestTaskMinTier(t *testing.T) {
 }
 
 // ── Browser driver routing tests (issue #5) ───────────────────────────────────
-
-func TestBrowserDriversRegistered(t *testing.T) {
-	for _, name := range []string{"chatgpt-browser", "notebooklm-browser", "gemini-app-browser"} {
-		tier, ok := driverTiers[name]
-		if !ok {
-			t.Errorf("driver %q missing from driverTiers", name)
-			continue
-		}
-		if tier != TierSubscription {
-			t.Errorf("driver %q: expected TierSubscription, got %s", name, tier)
-		}
-	}
-}
+// TestBrowserDriversRegistered removed in Ladder Forge II (2026-04-14):
+// chatgpt-browser, notebooklm-browser, gemini-app-browser dropped from
+// driverTiers. The routing behavior tests below continue to exercise
+// subscription-tier fallback using synthetic tier maps, which remain valid.
 
 func TestRecommend_BrowserDriverPreferredOverCLI(t *testing.T) {
 	// Browser tasks should route to subscription-tier browser drivers before CLI.

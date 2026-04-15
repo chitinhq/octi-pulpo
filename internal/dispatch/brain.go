@@ -916,13 +916,10 @@ func (b *Brain) ProbeDrivers(ctx context.Context) {
 // driverProbeCommands maps driver names to the lightweight CLI command used
 // to verify reachability. Commands are intentionally non-destructive (version
 // checks or auth status only — no token consumption).
+// Ladder Forge II (2026-04-14): CLI-driver probes (claude-code, copilot,
+// codex, gemini, goose) pruned. Only openclaw retains a local CLI probe.
 var driverProbeCommands = map[string][]string{
-	"claude-code": {"claude", "--version"},
-	"copilot":     {"copilot", "--version"},
-	"codex":       {"codex", "--version"},
-	"gemini":      {"gemini", "--version"},
-	"goose":       {"goose", "--version"},
-	"openclaw":    {"openclaw", "--version"},
+	"openclaw": {"openclaw", "--version"},
 }
 
 // probeOneDriver runs a lightweight availability check for the given driver.

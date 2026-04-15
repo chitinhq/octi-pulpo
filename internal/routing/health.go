@@ -165,18 +165,16 @@ var creditErrorPatterns = []string{
 
 // driverCreditKeywords maps specific error substrings to driver names.
 // More specific patterns must come first.
+// Ladder Forge II (2026-04-14): CLI-driver keywords (claude-code, copilot,
+// codex, gemini) pruned. Surviving drivers (clawta, openclaw, gh-actions,
+// anthropic/claude-api) have their own error surfaces; keep only the
+// anthropic-API credit keywords here for claude-api budget exhaustion.
 var driverCreditKeywords = []struct {
 	keyword string
 	driver  string
 }{
-	{"claude.ai", "claude-code"},
-	{"credit balance", "claude-code"},
-	{"anthropic", "claude-code"},
-	{"github.com/copilot", "copilot"},
-	{"copilot", "copilot"},
-	{"openai.com", "codex"},
-	{"google.com/generativeai", "gemini"},
-	{"google generative", "gemini"},
+	{"anthropic", "claude-api"},
+	{"credit balance", "claude-api"},
 }
 
 // DetectExhaustedDriver scans agent output for known credit/quota error patterns.

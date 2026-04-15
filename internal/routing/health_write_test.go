@@ -148,24 +148,30 @@ func TestForceCloseCircuit_AlwaysWrites(t *testing.T) {
 }
 
 func TestDetectExhaustedDriver_ClaudeCredit(t *testing.T) {
-	output := "Error: Credit balance is too low. Visit claude.ai to top up."
+	// Ladder Forge II (2026-04-14): claude.ai credit errors now route to
+	// the claude-api driver (Claude Code Cloud / Anthropic API). claude-code
+	// CLI driver was pruned.
+	output := "Error: Credit balance is too low. Visit anthropic.com to top up."
 	driver, found := DetectExhaustedDriver(output)
 	if !found {
 		t.Fatal("expected credit error to be detected")
 	}
-	if driver != "claude-code" {
-		t.Errorf("driver: got %q, want claude-code", driver)
+	if driver != "claude-api" {
+		t.Errorf("driver: got %q, want claude-api", driver)
 	}
 }
 
 func TestDetectExhaustedDriver_QuotaExceeded(t *testing.T) {
+	// Ladder Forge II (2026-04-14): codex CLI driver pruned; openai.com
+	// credit keyword dropped. A bare quota-exceeded message with no surviving
+	// driver keyword surfaces as "unknown".
 	output := "openai.com: You have exceeded your current quota, please check your plan."
 	driver, found := DetectExhaustedDriver(output)
 	if !found {
 		t.Fatal("expected quota error to be detected")
 	}
-	if driver != "codex" {
-		t.Errorf("driver: got %q, want codex", driver)
+	if driver != "unknown" {
+		t.Errorf("driver: got %q, want unknown (codex pruned)", driver)
 	}
 }
 

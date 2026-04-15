@@ -6,10 +6,14 @@ const (
 	TierFrontier ModelTier = "frontier"
 	TierMid      ModelTier = "mid"
 	TierLight    ModelTier = "light"
-	TierFree     ModelTier = "free"
 	TierNone     ModelTier = "none"
 )
 
+// Ladder Forge II (2026-04-14): CLI drivers pruned. TierFree collapsed (was
+// goose-only). Remaining tiers map to the surviving substrates:
+//   frontier → anthropic (Claude Code Cloud, T3)
+//   mid      → gh-actions (T2) + anthropic
+//   light    → clawta (T1 local gateway)
 var stageTiers = map[string]ModelTier{
 	"architect": TierFrontier,
 	"implement": TierMid,
@@ -21,10 +25,9 @@ var stageTiers = map[string]ModelTier{
 const riskEscalationThreshold = 40
 
 var tierDrivers = map[ModelTier][]string{
-	TierFrontier: {"claude-code", "copilot"},
-	TierMid:      {"copilot", "codex", "gemini", "claude-code"},
-	TierLight:    {"claude-code", "codex", "gemini"},
-	TierFree:     {"goose"},
+	TierFrontier: {"anthropic"},
+	TierMid:      {"gh-actions", "anthropic"},
+	TierLight:    {"clawta"},
 	TierNone:     {},
 }
 

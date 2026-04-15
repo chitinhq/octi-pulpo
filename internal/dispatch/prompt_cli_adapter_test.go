@@ -14,14 +14,11 @@ func newTestAdapter(available map[string]bool, runner PromptCLIRunner) *PromptCL
 	a := NewPromptCLIAdapter()
 	a.LookPath = func(bin string) (string, error) {
 		// Map binary name → driver via default table.
+		// Ladder Forge II (2026-04-14): openclaw is the sole surviving CLI driver.
 		driver := ""
 		switch bin {
-		case "copilot":
-			driver = "copilot"
-		case "codex":
-			driver = "codex"
-		case "claude":
-			driver = "claude-code"
+		case "openclaw":
+			driver = "openclaw"
 		}
 		if available[driver] {
 			return "/usr/bin/" + bin, nil
@@ -38,19 +35,19 @@ func TestPromptCLI_DriverSelection_PrefersRequested(t *testing.T) {
 		called = driver
 		return []byte("ok"), nil
 	}
-	a := newTestAdapter(map[string]bool{"copilot": true, "codex": true, "claude-code": true}, runner)
+	a := newTestAdapter(map[string]bool{"openclaw": true}, runner)
 
 	res := a.Dispatch(context.Background(), &PromptCLIRequest{
 		Prompt:          "hello",
-		PreferredDriver: "codex",
+		PreferredDriver: "openclaw",
 	})
 	if res.Error != "" {
 		t.Fatalf("unexpected error: %s", res.Error)
 	}
-	if called != "codex" {
-		t.Fatalf("expected codex, got %q", called)
+	if called != "openclaw" {
+		t.Fatalf("expected openclaw, got %q", called)
 	}
-	if res.DriverUsed != "codex" {
+	if res.DriverUsed != "openclaw" {
 		t.Fatalf("result driver = %q", res.DriverUsed)
 	}
 	if res.Output != "ok" {
@@ -59,23 +56,24 @@ func TestPromptCLI_DriverSelection_PrefersRequested(t *testing.T) {
 }
 
 func TestPromptCLI_FallbackOrder(t *testing.T) {
-	// Only claude-code installed — adapter must skip copilot & codex.
+	// Ladder Forge II (2026-04-14): CLI fallback chain collapsed to single
+	// openclaw driver. Test verifies it's invoked when present.
 	var called []string
 	runner := func(ctx context.Context, driver, binary, system, prompt string) ([]byte, error) {
 		called = append(called, driver)
-		return []byte("claude output"), nil
+		return []byte("openclaw output"), nil
 	}
-	a := newTestAdapter(map[string]bool{"claude-code": true}, runner)
+	a := newTestAdapter(map[string]bool{"openclaw": true}, runner)
 
 	res := a.Dispatch(context.Background(), &PromptCLIRequest{Prompt: "hi"})
 	if res.Error != "" {
 		t.Fatalf("unexpected error: %s", res.Error)
 	}
-	if res.DriverUsed != "claude-code" {
-		t.Fatalf("expected claude-code, got %q", res.DriverUsed)
+	if res.DriverUsed != "openclaw" {
+		t.Fatalf("expected openclaw, got %q", res.DriverUsed)
 	}
-	if len(called) != 1 || called[0] != "claude-code" {
-		t.Fatalf("expected single claude-code invocation, got %v", called)
+	if len(called) != 1 || called[0] != "openclaw" {
+		t.Fatalf("expected single openclaw invocation, got %v", called)
 	}
 }
 
@@ -96,25 +94,21 @@ func TestPromptCLI_AllMissing(t *testing.T) {
 }
 
 func TestPromptCLI_FallsBackOnRunnerError(t *testing.T) {
+	// Ladder Forge II (2026-04-14): single-driver chain (openclaw). When it
+	// errors, dispatch returns the error — no fallback candidates remain.
 	var called []string
 	runner := func(ctx context.Context, driver, binary, system, prompt string) ([]byte, error) {
 		called = append(called, driver)
-		if driver == "copilot" {
-			return nil, errors.New("copilot crashed")
-		}
-		return []byte("codex worked"), nil
+		return nil, errors.New("openclaw crashed")
 	}
-	a := newTestAdapter(map[string]bool{"copilot": true, "codex": true}, runner)
+	a := newTestAdapter(map[string]bool{"openclaw": true}, runner)
 
 	res := a.Dispatch(context.Background(), &PromptCLIRequest{Prompt: "hi"})
-	if res.Error != "" {
-		t.Fatalf("unexpected error: %s", res.Error)
+	if res.Error == "" {
+		t.Fatal("expected error when sole driver fails")
 	}
-	if res.DriverUsed != "codex" {
-		t.Fatalf("expected fallback to codex, got %q", res.DriverUsed)
-	}
-	if len(called) != 2 || called[0] != "copilot" || called[1] != "codex" {
-		t.Fatalf("expected copilot→codex, got %v", called)
+	if len(called) != 1 || called[0] != "openclaw" {
+		t.Fatalf("expected single openclaw attempt, got %v", called)
 	}
 }
 
@@ -128,7 +122,7 @@ func TestPromptCLI_Timeout(t *testing.T) {
 			return []byte("should not happen"), nil
 		}
 	}
-	a := newTestAdapter(map[string]bool{"copilot": true}, runner)
+	a := newTestAdapter(map[string]bool{"openclaw": true}, runner)
 
 	start := time.Now()
 	res := a.Dispatch(context.Background(), &PromptCLIRequest{
@@ -148,7 +142,7 @@ func TestPromptCLI_Timeout(t *testing.T) {
 }
 
 func TestPromptCLI_EmptyPrompt(t *testing.T) {
-	a := newTestAdapter(map[string]bool{"copilot": true}, nil)
+	a := newTestAdapter(map[string]bool{"openclaw": true}, nil)
 	res := a.Dispatch(context.Background(), &PromptCLIRequest{})
 	if res.Error == "" {
 		t.Fatal("expected error for empty prompt")
@@ -163,7 +157,7 @@ func TestPromptCLI_RejectsUnknownPreferredDriver(t *testing.T) {
 		runnerCalled = true
 		return nil, nil
 	}
-	a := newTestAdapter(map[string]bool{"copilot": true, "codex": true, "claude-code": true}, runner)
+	a := newTestAdapter(map[string]bool{"openclaw": true}, runner)
 	res := a.Dispatch(context.Background(), &PromptCLIRequest{
 		Prompt:          "hi",
 		PreferredDriver: "/bin/sh",
@@ -183,13 +177,14 @@ func TestPromptCLI_RejectsUnknownPreferredDriver(t *testing.T) {
 }
 
 func TestValidatePreferredDriver(t *testing.T) {
-	good := []string{"", "copilot", "codex", "claude-code"}
+	// Ladder Forge II (2026-04-14): openclaw is the sole remaining CLI driver.
+	good := []string{"", "openclaw"}
 	for _, d := range good {
 		if err := ValidatePreferredDriver(d); err != nil {
 			t.Errorf("expected %q allowed, got err=%v", d, err)
 		}
 	}
-	bad := []string{"sh", "../../../bin/rm", "copilot ", "COPILOT", "/bin/sh"}
+	bad := []string{"sh", "../../../bin/rm", "openclaw ", "OPENCLAW", "/bin/sh", "copilot", "codex", "claude-code"}
 	for _, d := range bad {
 		if err := ValidatePreferredDriver(d); err == nil {
 			t.Errorf("expected %q rejected", d)
@@ -211,7 +206,7 @@ func TestPromptCLI_CumulativeDeadline(t *testing.T) {
 			return []byte("should not happen"), nil
 		}
 	}
-	a := newTestAdapter(map[string]bool{"copilot": true, "codex": true, "claude-code": true}, runner)
+	a := newTestAdapter(map[string]bool{"openclaw": true}, runner)
 
 	start := time.Now()
 	res := a.Dispatch(context.Background(), &PromptCLIRequest{
@@ -252,10 +247,8 @@ func TestBuildPromptCLIArgs(t *testing.T) {
 		system    string
 		mustHave  []string
 	}{
-		{"copilot", "do thing", "", []string{"-p", "do thing", "--allow-all-tools"}},
-		{"copilot", "do thing", "be terse", []string{"--append-system-prompt", "be terse"}},
-		{"codex", "do thing", "", []string{"exec", "do thing"}},
-		{"claude-code", "do thing", "", []string{"-p", "do thing"}},
+		{"openclaw", "do thing", "", []string{"-p", "do thing"}},
+		{"openclaw", "do thing", "be terse", []string{"--append-system-prompt", "be terse"}},
 	}
 	for _, tc := range cases {
 		args, _ := buildPromptCLIArgs(tc.driver, tc.system, tc.prompt)

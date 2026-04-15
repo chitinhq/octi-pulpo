@@ -23,30 +23,21 @@ const (
 var tierOrder = []CostTier{TierLocal, TierGHActions, TierSubscription, TierCLI, TierAPI}
 
 // driverTiers maps each known driver to its cost tier.
+//
+// Ladder Forge II (2026-04-14): CLI drivers (codex, gemini, goose, copilot,
+// claude-code) and the browser trio (chatgpt-browser, notebooklm-browser,
+// gemini-app-browser) were pruned. Only clawta (T1 local), openclaw (T1
+// subscription), gh-actions (T2), and claude-api/anthropic (T3-ish) remain.
 var driverTiers = map[string]CostTier{
-	// Subscription (browser-based, already paying)
-	//   openclaw: browser-automated Claude Max subscription
-	//   chatgpt-browser: OpenAI Plus subscription via chat.openai.com
-	//   notebooklm-browser: Google AI Premium via notebooklm.google.com
-	//   gemini-app-browser: Google AI Premium via gemini.google.com
-	"openclaw":           TierSubscription,
-	"chatgpt-browser":    TierSubscription,
-	"notebooklm-browser": TierSubscription,
-	"gemini-app-browser": TierSubscription,
-	// GitHub Actions (free with Enterprise)
+	// Local (T1 — gateway-arbitrated)
+	"clawta": TierLocal,
+	// Subscription (browser-automated Claude Max)
+	"openclaw": TierSubscription,
+	// GitHub Actions (T2 — free with Enterprise)
 	"gh-actions": TierGHActions,
-	// CLI (metered subscription)
-	"claude-code": TierCLI,
-	"copilot":     TierCLI,
-	"codex":       TierCLI,
-	"gemini":      TierCLI,
-	"goose":       TierCLI,
-	// Anthropic API (per-token)
-	"anthropic":  TierAPI,
-	// API (per-token, burst capacity)
-	"claude-api":  TierAPI,
-	"openai-api":  TierAPI,
-	"gemini-api":  TierAPI,
+	// Anthropic API (per-token — Claude Code Cloud dispatch)
+	"anthropic": TierAPI,
+	"claude-api": TierAPI,
 }
 
 // taskAffinityTiers maps task-type keywords to a minimum cost tier.
@@ -57,10 +48,10 @@ var taskAffinityTiers = []struct {
 	minTier  CostTier
 }{
 	{[]string{"code", "review", "pull-request", "commit", "implement", "debug", "refactor", "test"}, TierGHActions},
-	// Browser-tier tasks: general web interaction plus NotebookLM-specific capabilities
-	// (audio overview, podcast briefing, slide deck generation, Drive export).
-	{[]string{"browse", "web", "click", "screenshot", "briefing", "artifact", "document",
-		"audio-overview", "audio overview", "podcast", "slide", "upload document", "export to drive"}, TierSubscription},
+	// Browser-tier tasks: general web interaction via openclaw. NotebookLM-specific
+	// capabilities (audio-overview, podcast, slide, Drive export) dropped with the
+	// browser-trio prune (Ladder Forge II, 2026-04-14).
+	{[]string{"browse", "web", "click", "screenshot", "briefing", "artifact", "document"}, TierSubscription},
 	{[]string{"burst", "programmatic", "api-call"}, TierAPI},
 	// "simple", "classify", "triage" etc. get no override → defaults to TierLocal
 }

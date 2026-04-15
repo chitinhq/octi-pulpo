@@ -1361,7 +1361,7 @@ func toolDefs() []ToolDef {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"driver": map[string]string{"type": "string", "description": "Driver name to reset (e.g. 'codex', 'copilot', 'gemini'). Must match an existing health file."},
+					"driver": map[string]string{"type": "string", "description": "Driver name to reset (e.g. 'openclaw', 'clawta', 'gh-actions', 'claude-api'). Must match an existing health file."},
 					"note":   map[string]string{"type": "string", "description": "Optional reason for the manual reset (logged in the response for audit purposes)."},
 				},
 				"required": []string{"driver"},
@@ -1385,7 +1385,7 @@ func toolDefs() []ToolDef {
 				"properties": map[string]interface{}{
 					"agent":                map[string]string{"type": "string", "description": "Agent name (e.g. sr-kernel-01)"},
 					"budget_monthly_cents": map[string]interface{}{"type": "number", "description": "Monthly budget limit in cents (e.g. 770 = $7.70)"},
-					"driver":               map[string]string{"type": "string", "description": "Driver name (e.g. claude-code). Optional when updating an existing record."},
+					"driver":               map[string]string{"type": "string", "description": "Driver name (e.g. clawta, openclaw, gh-actions). Optional when updating an existing record."},
 					"box":                  map[string]string{"type": "string", "description": "Box/host the agent runs on. Optional when updating an existing record."},
 				},
 				"required": []string{"agent", "budget_monthly_cents"},
@@ -1484,12 +1484,12 @@ func toolDefs() []ToolDef {
 		},
 		{
 			Name:        "dispatch_prompt_to_cli",
-			Description: "Dispatch a freeform prompt to a local CLI agent (copilot, codex, or claude-code). No API key, no worktree. Picks first available driver with fallback.",
+			Description: "Dispatch a freeform prompt to a local CLI agent (openclaw). No API key, no worktree.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"prompt":           map[string]any{"type": "string", "description": "Freeform prompt to send"},
-					"preferred_driver": map[string]any{"type": "string", "description": "copilot | codex | claude-code (optional)"},
+					"preferred_driver": map[string]any{"type": "string", "description": "openclaw (optional)"},
 					"timeout_seconds":  map[string]any{"type": "integer", "description": "Timeout in seconds (default 120)"},
 					"system_prompt":    map[string]any{"type": "string", "description": "Optional system prompt appended to the driver's default"},
 				},

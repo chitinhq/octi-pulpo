@@ -1,5 +1,5 @@
 {
-  "priority": ["openclaw", "claude", "copilot", "gemini", "codex"],
+  "priority": ["openclaw", "claude"],
   "platforms": {
     "openclaw": {
       "queues": ["intake", "groom"],
@@ -11,24 +11,6 @@
       "queues": ["intake", "groom", "build", "validate"],
       "model": "opus",
       "daily_cap": 20,
-      "enabled": true
-    },
-    "copilot": {
-      "queues": ["intake", "groom", "build", "validate"],
-      "model": "gpt-5.4-mini",
-      "daily_cap": 20,
-      "enabled": true
-    },
-    "gemini": {
-      "queues": ["intake", "groom"],
-      "model": "gemini-2.5-pro",
-      "daily_cap": 10,
-      "enabled": true
-    },
-    "codex": {
-      "queues": ["intake", "groom"],
-      "model": "o3",
-      "daily_cap": 5,
       "enabled": true
     }
   }

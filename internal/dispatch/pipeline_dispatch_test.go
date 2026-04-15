@@ -7,17 +7,17 @@ import (
 )
 
 func TestPipelineRoute(t *testing.T) {
+	// Ladder Forge II (2026-04-14): Mid tier now gh-actions + anthropic.
 	pr := PipelineRouter{}
 	decision := pr.RouteForStage("implement", 0, []routing.DriverHealth{
-		{Name: "copilot", CircuitState: "CLOSED"},
-		{Name: "claude-code", CircuitState: "CLOSED"},
-		{Name: "codex", CircuitState: "CLOSED"},
+		{Name: "gh-actions", CircuitState: "CLOSED"},
+		{Name: "anthropic", CircuitState: "CLOSED"},
 	})
 	if decision.Skip {
 		t.Fatal("expected a route, got skip")
 	}
-	if decision.Driver != "copilot" {
-		t.Errorf("driver = %s, want copilot (cheapest Mid)", decision.Driver)
+	if decision.Driver != "gh-actions" {
+		t.Errorf("driver = %s, want gh-actions (first Mid candidate)", decision.Driver)
 	}
 	if decision.Tier != string(routing.TierMid) {
 		t.Errorf("tier = %s, want mid", decision.Tier)
@@ -27,8 +27,7 @@ func TestPipelineRoute(t *testing.T) {
 func TestPipelineRouteNoHealthyFrontier(t *testing.T) {
 	pr := PipelineRouter{}
 	decision := pr.RouteForStage("architect", 0, []routing.DriverHealth{
-		{Name: "claude-code", CircuitState: "OPEN"},
-		{Name: "copilot", CircuitState: "OPEN"},
+		{Name: "anthropic", CircuitState: "OPEN"},
 	})
 	if !decision.Skip {
 		t.Error("expected skip when no healthy Frontier drivers")

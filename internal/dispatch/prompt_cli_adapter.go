@@ -23,17 +23,18 @@ type PromptCLIRunner func(ctx context.Context, driver, binary, systemPrompt, pro
 // AllowedDrivers is the allowlist of accepted driver names. Unknown values
 // are rejected at the boundary to prevent arbitrary-binary execution via a
 // user-controlled `preferred_driver` falling through to a default case.
+//
+// Ladder Forge II (2026-04-14): CLI drivers (copilot, codex, claude-code)
+// pruned. Openclaw is the only remaining local-CLI surface.
 var AllowedDrivers = map[string]bool{
-	"copilot":     true,
-	"codex":       true,
-	"claude-code": true,
-	"":            true, // empty → use default fallback chain
+	"openclaw": true,
+	"":         true, // empty → use default fallback chain
 }
 
 // ValidatePreferredDriver returns an error if driver is not on the allowlist.
 func ValidatePreferredDriver(driver string) error {
 	if !AllowedDrivers[driver] {
-		return fmt.Errorf("invalid preferred_driver %q: allowed values are copilot, codex, claude-code, or empty", driver)
+		return fmt.Errorf("invalid preferred_driver %q: allowed values are openclaw or empty", driver)
 	}
 	return nil
 }
@@ -42,7 +43,7 @@ func ValidatePreferredDriver(driver string) error {
 type PromptCLIRequest struct {
 	Prompt          string
 	SystemPrompt    string
-	PreferredDriver string        // "copilot" | "codex" | "claude-code" | ""
+	PreferredDriver string        // "openclaw" | ""
 	Timeout         time.Duration // 0 → DefaultPromptCLITimeout
 }
 
@@ -55,10 +56,10 @@ type PromptCLIResult struct {
 }
 
 // PromptCLIAdapter dispatches a freeform prompt to a local CLI agent
-// (Copilot CLI, Codex, or Claude Code) without requiring a git worktree
-// or an API key. It picks a driver by simple fallback policy and executes
-// one subprocess, passing the prompt via argv (safe under exec.Command,
-// which does not spawn a shell).
+// (openclaw) without requiring a git worktree or an API key. It picks a
+// driver by simple fallback policy and executes one subprocess, passing
+// the prompt via argv (safe under exec.Command, which does not spawn a
+// shell). Ladder Forge II pruned copilot/codex/claude-code CLI drivers.
 type PromptCLIAdapter struct {
 	// DriverOrder overrides the default fallback chain when non-empty.
 	DriverOrder []string
@@ -72,16 +73,15 @@ type PromptCLIAdapter struct {
 }
 
 // DefaultDriverOrder is the fallback chain when PreferredDriver is unset.
-var DefaultDriverOrder = []string{"copilot", "codex", "claude-code"}
+// Ladder Forge II (2026-04-14): CLI drivers pruned; openclaw is sole remainder.
+var DefaultDriverOrder = []string{"openclaw"}
 
 // NewPromptCLIAdapter returns an adapter with defaults wired in.
 func NewPromptCLIAdapter() *PromptCLIAdapter {
 	return &PromptCLIAdapter{
 		DriverOrder: append([]string(nil), DefaultDriverOrder...),
 		Binaries: map[string]string{
-			"copilot":     "copilot",
-			"codex":       "codex",
-			"claude-code": "claude",
+			"openclaw": "openclaw",
 		},
 	}
 }
@@ -98,12 +98,8 @@ func (a *PromptCLIAdapter) binaryFor(driver string) string {
 		}
 	}
 	switch driver {
-	case "copilot":
-		return "copilot"
-	case "codex":
-		return "codex"
-	case "claude-code":
-		return "claude"
+	case "openclaw":
+		return "openclaw"
 	}
 	return driver
 }
@@ -249,21 +245,8 @@ func realPromptCLIRunner(ctx context.Context, driver, binary, systemPrompt, prom
 // caller — never exec'd.
 func buildPromptCLIArgs(driver, systemPrompt, prompt string) ([]string, string) {
 	switch driver {
-	case "copilot":
-		// copilot -p reads prompt from argv; use env-independent flags and
-		// disable confirmations for non-interactive use. We still pass the
-		// prompt via argv (exec, not shell) which is injection-safe.
-		args := []string{"-p", prompt, "--allow-all-tools", "--no-ask-user"}
-		if systemPrompt != "" {
-			args = append(args, "--append-system-prompt", systemPrompt)
-		}
-		return args, ""
-	case "codex":
-		// `codex exec <prompt>` runs non-interactively.
-		args := []string{"exec", prompt}
-		return args, ""
-	case "claude-code":
-		// `claude -p <prompt>` non-interactive print mode.
+	case "openclaw":
+		// openclaw accepts prompt via argv; system prompt appended if present.
 		args := []string{"-p", prompt}
 		if systemPrompt != "" {
 			args = append(args, "--append-system-prompt", systemPrompt)

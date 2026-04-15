@@ -25,12 +25,12 @@ func TestDriversForTier(t *testing.T) {
 	drivers := DriversForTier(TierFrontier)
 	found := false
 	for _, d := range drivers {
-		if d == "claude-code" {
+		if d == "anthropic" {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected claude-code in Frontier drivers")
+		t.Error("expected anthropic in Frontier drivers")
 	}
 }
 
