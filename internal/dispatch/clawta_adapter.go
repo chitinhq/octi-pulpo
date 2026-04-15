@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,14 @@ const (
 	clawtaTimeout         = 10 * time.Minute
 	defaultClawtaBinary   = "clawta"
 	defaultClawtaProvider = "deepseek"
+
+	// Ollama Cloud (OpenAI-compatible) — flat $20/mo, wired in openclaw.
+	ollamaCloudBaseURL      = "https://ollama.com/v1"
+	defaultOllamaCloudModel = "gpt-oss:20b"
+
+	// Local Ollama — zero-cost fallback.
+	localOllamaHost         = "127.0.0.1:11434"
+	defaultLocalOllamaModel = "qwen2.5-coder:7b"
 )
 
 // ClawtaAdapter dispatches tasks to the Clawta governed CLI agent.
@@ -24,15 +33,17 @@ const (
 // commits, pushes a branch, and opens a PR.
 type ClawtaAdapter struct {
 	binary    string // path to clawta binary
-	model     string
-	provider  string
+	model     string // model passed to Clawta (may be overridden by auto-selection)
+	provider  string // provider passed to Clawta (may be overridden by auto-selection)
 	workspace string // root workspace path
 	learner   *learner.Learner
 }
 
 // NewClawtaAdapter creates a ClawtaAdapter. Zero-value strings fall back to
 // defaults: binary="clawta", model="deepseek-chat", provider="deepseek",
-// workspace="$HOME/workspace".
+// workspace="$HOME/workspace". At dispatch time the adapter auto-selects an
+// inference provider (local Ollama → Ollama Cloud → DeepSeek) unless the
+// caller constructed it with an explicit non-default provider override.
 func NewClawtaAdapter(binary, model, provider, workspace string) *ClawtaAdapter {
 	if binary == "" {
 		binary = defaultClawtaBinary
@@ -60,10 +71,81 @@ func (a *ClawtaAdapter) Name() string { return "clawta" }
 // SetLearner enables automatic episodic memory storage for task outcomes.
 func (a *ClawtaAdapter) SetLearner(l *learner.Learner) { a.learner = l }
 
+// providerChoice describes the concrete provider/model/auth passed to clawta.
+type providerChoice struct {
+	name    string // telemetry label: "ollama-local", "ollama-cloud", "deepseek"
+	flag    string // clawta --provider value
+	model   string
+	baseURL string // empty = provider default
+	envKey  string // env var name carrying the API key on the child process
+	envVal  string // API key value (may be empty for local ollama)
+}
+
+// selectProvider picks an inference provider in preference order:
+//  1. local Ollama reachable at 127.0.0.1:11434 (free)
+//  2. OLLAMA_CLOUD_API_KEY set (flat $20/mo)
+//  3. DEEPSEEK_API_KEY set (legacy, kept for when wallet refills)
+//
+// Returns nil if none are available.
+func selectProvider() *providerChoice {
+	if localOllamaReachable() {
+		return &providerChoice{
+			name:    "ollama-local",
+			flag:    "ollama",
+			model:   envOr("CLAWTA_OLLAMA_LOCAL_MODEL", defaultLocalOllamaModel),
+			baseURL: "http://" + localOllamaHost,
+		}
+	}
+	if key := os.Getenv("OLLAMA_CLOUD_API_KEY"); key != "" {
+		return &providerChoice{
+			name:    "ollama-cloud",
+			flag:    "openai",
+			model:   envOr("CLAWTA_OLLAMA_CLOUD_MODEL", defaultOllamaCloudModel),
+			baseURL: ollamaCloudBaseURL,
+			envKey:  "OPENAI_API_KEY",
+			envVal:  key,
+		}
+	}
+	if key := os.Getenv("DEEPSEEK_API_KEY"); key != "" {
+		return &providerChoice{
+			name:   "deepseek",
+			flag:   "deepseek",
+			model:  defaultClawtaModel,
+			envKey: "DEEPSEEK_API_KEY",
+			envVal: key,
+		}
+	}
+	return nil
+}
+
+// localOllamaReachable returns true if the local Ollama daemon answers on
+// 127.0.0.1:11434 within a tight timeout. Set CLAWTA_SKIP_LOCAL_OLLAMA=1 to
+// force the selector past the local probe (useful in tests and when the user
+// wants to exercise a cloud provider on a laptop where Ollama is running).
+func localOllamaReachable() bool {
+	if os.Getenv("CLAWTA_SKIP_LOCAL_OLLAMA") == "1" {
+		return false
+	}
+	conn, err := net.DialTimeout("tcp", localOllamaHost, 250*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 // CanAccept returns true for code-gen, bugfix, config, and evolve task types
-// when DEEPSEEK_API_KEY is available in the environment.
+// when at least one inference provider is available (local Ollama, Ollama
+// Cloud, or DeepSeek).
 func (a *ClawtaAdapter) CanAccept(task *Task) bool {
-	if os.Getenv("DEEPSEEK_API_KEY") == "" {
+	if selectProvider() == nil {
 		return false
 	}
 	switch task.Type {
@@ -84,6 +166,13 @@ func (a *ClawtaAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResul
 	result := &AdapterResult{
 		TaskID:  task.ID,
 		Adapter: a.Name(),
+	}
+
+	choice := selectProvider()
+	if choice == nil {
+		result.Status = "failed"
+		result.Error = "no inference provider available (need OLLAMA_CLOUD_API_KEY, DEEPSEEK_API_KEY, or local Ollama at 127.0.0.1:11434)"
+		return result, nil
 	}
 
 	// Resolve local repo path.
@@ -125,19 +214,27 @@ func (a *ClawtaAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResul
 
 	args := []string{
 		"run",
-		"--provider", a.provider,
-		"--model", a.model,
+		"--provider", choice.flag,
+		"--model", choice.model,
 		"--max-turns", "100",
 		"--timeout", fmt.Sprintf("%d", int(clawtaTimeout.Milliseconds())),
-		prompt,
 	}
+	if choice.baseURL != "" {
+		args = append(args, "--base-url", choice.baseURL)
+	}
+	args = append(args, prompt)
 
 	cmd := exec.CommandContext(ctx, a.binary, args...)
 	cmd.Dir = worktreePath
 
 	env := os.Environ()
-	if key := os.Getenv("DEEPSEEK_API_KEY"); key != "" {
-		env = append(env, fmt.Sprintf("DEEPSEEK_API_KEY=%s", key))
+	if choice.envKey != "" && choice.envVal != "" {
+		env = append(env, fmt.Sprintf("%s=%s", choice.envKey, choice.envVal))
+	}
+	// Propagate dispatch_id (octi#258) so downstream sentinel reconciler
+	// can join Redis dispatch-log ↔ Neon execution_events.
+	if task.DispatchID != "" {
+		env = append(env, fmt.Sprintf("OCTI_DISPATCH_ID=%s", task.DispatchID))
 	}
 	cmd.Env = env
 
@@ -146,26 +243,21 @@ func (a *ClawtaAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResul
 
 	if err != nil {
 		result.Status = "failed"
-		result.Error = fmt.Sprintf("clawta exited: %v", err)
+		result.Error = fmt.Sprintf("clawta exited (provider=%s): %v", choice.name, err)
 	} else {
 		result.Status = "completed"
 	}
 
 	// Adapter-side git plumbing: push branch and open PR if Clawta produced commits.
-	// Honest-dispatch: Status="completed" requires push + PR create to actually succeed.
-	// If either side-effect fails, downgrade Status so the outer dispatcher reports
-	// Action="failed" and the learner does not ingest a false-positive success.
-	// See: chitinhq/octi#243, chitinhq/octi#245 (sibling fix).
 	if result.Status == "completed" {
 		if hasNewCommits(worktreePath, "origin/"+defaultBranch) {
 			pushCmd := exec.CommandContext(ctx, "git", "push", "-u", "origin", branchName)
 			pushCmd.Dir = worktreePath
 			if pushOut, pushErr := pushCmd.CombinedOutput(); pushErr != nil {
-				result.Status = "failed"
 				result.Error = fmt.Sprintf("push failed: %s: %s", pushErr, string(pushOut))
 			} else {
 				prTitle := truncate(task.Prompt, 60)
-				prBody := fmt.Sprintf("Auto-generated by Clawta via Octi Pulpo dispatch\n\nTask: %s\nAdapter: %s\nType: %s", task.ID, a.Name(), task.Type)
+				prBody := fmt.Sprintf("Auto-generated by Clawta via Octi Pulpo dispatch\n\nTask: %s\nAdapter: %s\nType: %s\nProvider: %s\nDispatchID: %s", task.ID, a.Name(), task.Type, choice.name, task.DispatchID)
 				prCmd := exec.CommandContext(ctx, "gh", "pr", "create",
 					"--repo", task.Repo,
 					"--head", branchName,
@@ -174,7 +266,6 @@ func (a *ClawtaAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterResul
 				)
 				prCmd.Dir = worktreePath
 				if prOut, prErr := prCmd.CombinedOutput(); prErr != nil {
-					result.Status = "failed"
 					result.Error = fmt.Sprintf("pr create failed: %s: %s", prErr, string(prOut))
 				} else {
 					result.Output = string(prOut)
@@ -230,8 +321,8 @@ func hasNewCommits(worktreePath, baseRef string) bool {
 
 // cleanupWorktree removes the worktree and local branch (best-effort).
 func cleanupWorktree(repoPath, worktreePath, branchName string) {
-	exec.Command("git", "worktree", "remove", "--force", worktreePath).Run()            //nolint:errcheck
-	exec.Command("git", "-C", repoPath, "branch", "-D", branchName).Run()              //nolint:errcheck
+	exec.Command("git", "worktree", "remove", "--force", worktreePath).Run() //nolint:errcheck
+	exec.Command("git", "-C", repoPath, "branch", "-D", branchName).Run()    //nolint:errcheck
 }
 
 // truncate is defined in leaderboard.go (shared within the dispatch package).

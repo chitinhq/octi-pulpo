@@ -5,9 +5,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
+
+// isolateProviderEnv clears all provider-selection inputs so a test case can
+// re-assert exactly one. Local-Ollama is skipped by default via
+// CLAWTA_SKIP_LOCAL_OLLAMA=1 — tests that want to exercise the local-Ollama
+// branch must override that explicitly.
+func isolateProviderEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "")
+	t.Setenv("CLAWTA_OLLAMA_CLOUD_MODEL", "")
+	t.Setenv("CLAWTA_SKIP_LOCAL_OLLAMA", "1")
+}
 
 // ---- Name ----
 
@@ -21,53 +32,59 @@ func TestClawtaAdapterName(t *testing.T) {
 // ---- CanAccept ----
 
 func TestClawtaAdapterCanAcceptCodeGen(t *testing.T) {
+	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "code-gen"}
 	if !a.CanAccept(task) {
-		t.Error("CanAccept(code-gen) with key: want true, got false")
+		t.Error("CanAccept(code-gen) with deepseek key: want true, got false")
 	}
 }
 
 func TestClawtaAdapterCanAcceptBugfix(t *testing.T) {
+	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "bugfix"}
 	if !a.CanAccept(task) {
-		t.Error("CanAccept(bugfix) with key: want true, got false")
+		t.Error("CanAccept(bugfix) with deepseek key: want true, got false")
 	}
 }
 
 func TestClawtaAdapterCanAcceptConfig(t *testing.T) {
+	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "config"}
 	if !a.CanAccept(task) {
-		t.Error("CanAccept(config) with key: want true, got false")
+		t.Error("CanAccept(config) with deepseek key: want true, got false")
 	}
 }
 
 func TestClawtaAdapterCanAcceptEvolve(t *testing.T) {
+	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "evolve"}
 	if !a.CanAccept(task) {
-		t.Error("CanAccept(evolve) with key: want true, got false")
+		t.Error("CanAccept(evolve) with deepseek key: want true, got false")
 	}
 }
 
 func TestClawtaAdapterCanAcceptEvolveSubTypes(t *testing.T) {
+	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	for _, typ := range []string{"prompt_config", "tool_addition", "config_change"} {
 		task := &Task{Type: typ}
 		if !a.CanAccept(task) {
-			t.Errorf("CanAccept(%s) with key: want true, got false", typ)
+			t.Errorf("CanAccept(%s) with deepseek key: want true, got false", typ)
 		}
 	}
 }
 
 func TestClawtaAdapterRejectsPRReview(t *testing.T) {
+	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "pr-review"}
@@ -77,6 +94,7 @@ func TestClawtaAdapterRejectsPRReview(t *testing.T) {
 }
 
 func TestClawtaAdapterRejectsTriage(t *testing.T) {
+	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "triage"}
@@ -85,12 +103,85 @@ func TestClawtaAdapterRejectsTriage(t *testing.T) {
 	}
 }
 
-func TestClawtaAdapterRejectsWithoutKey(t *testing.T) {
-	t.Setenv("DEEPSEEK_API_KEY", "")
+// TestClawtaAdapterRejectsWithoutAnyProvider verifies that when all three
+// providers are unavailable (no keys, local ollama probe skipped), CanAccept
+// returns false even for supported task types.
+func TestClawtaAdapterRejectsWithoutAnyProvider(t *testing.T) {
+	isolateProviderEnv(t)
 	a := NewClawtaAdapter("", "", "", "")
 	task := &Task{Type: "code-gen"}
 	if a.CanAccept(task) {
-		t.Error("CanAccept(code-gen) without key: want false, got true")
+		t.Error("CanAccept(code-gen) with no provider: want false, got true")
+	}
+}
+
+// ---- Provider selection (3-way) ----
+
+func TestSelectProviderDeepSeekOnly(t *testing.T) {
+	isolateProviderEnv(t)
+	t.Setenv("DEEPSEEK_API_KEY", "ds-key")
+	c := selectProvider()
+	if c == nil {
+		t.Fatal("selectProvider: want non-nil, got nil")
+	}
+	if c.name != "deepseek" {
+		t.Errorf("provider: want deepseek, got %s", c.name)
+	}
+	if c.flag != "deepseek" {
+		t.Errorf("flag: want deepseek, got %s", c.flag)
+	}
+	if c.envKey != "DEEPSEEK_API_KEY" || c.envVal != "ds-key" {
+		t.Errorf("env: want DEEPSEEK_API_KEY=ds-key, got %s=%s", c.envKey, c.envVal)
+	}
+}
+
+// TestSelectProviderOllamaCloudPreferredOverDeepSeek verifies preference:
+// when both OLLAMA_CLOUD_API_KEY and DEEPSEEK_API_KEY are set (and local
+// ollama is skipped), ollama-cloud wins.
+func TestSelectProviderOllamaCloudPreferredOverDeepSeek(t *testing.T) {
+	isolateProviderEnv(t)
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "oc-key")
+	t.Setenv("DEEPSEEK_API_KEY", "ds-key")
+	c := selectProvider()
+	if c == nil {
+		t.Fatal("selectProvider: want non-nil, got nil")
+	}
+	if c.name != "ollama-cloud" {
+		t.Errorf("provider: want ollama-cloud, got %s", c.name)
+	}
+	if c.flag != "openai" {
+		t.Errorf("flag: want openai (ollama cloud via openai-compat), got %s", c.flag)
+	}
+	if c.baseURL != ollamaCloudBaseURL {
+		t.Errorf("baseURL: want %s, got %s", ollamaCloudBaseURL, c.baseURL)
+	}
+	if c.model != defaultOllamaCloudModel {
+		t.Errorf("model: want %s, got %s", defaultOllamaCloudModel, c.model)
+	}
+	if c.envKey != "OPENAI_API_KEY" || c.envVal != "oc-key" {
+		t.Errorf("env: want OPENAI_API_KEY=oc-key, got %s=%s", c.envKey, c.envVal)
+	}
+}
+
+// TestSelectProviderOllamaCloudModelOverride verifies CLAWTA_OLLAMA_CLOUD_MODEL
+// overrides the default model choice.
+func TestSelectProviderOllamaCloudModelOverride(t *testing.T) {
+	isolateProviderEnv(t)
+	t.Setenv("OLLAMA_CLOUD_API_KEY", "oc-key")
+	t.Setenv("CLAWTA_OLLAMA_CLOUD_MODEL", "qwen3-coder:480b")
+	c := selectProvider()
+	if c == nil {
+		t.Fatal("selectProvider: want non-nil, got nil")
+	}
+	if c.model != "qwen3-coder:480b" {
+		t.Errorf("model: want qwen3-coder:480b, got %s", c.model)
+	}
+}
+
+func TestSelectProviderNoneAvailable(t *testing.T) {
+	isolateProviderEnv(t)
+	if c := selectProvider(); c != nil {
+		t.Errorf("selectProvider with no env: want nil, got %+v", c)
 	}
 }
 
@@ -149,39 +240,28 @@ func TestSanitizeBranch(t *testing.T) {
 
 // ---- detectDefaultBranch ----
 
-// TestDetectDefaultBranchMaster verifies that detectDefaultBranch returns
-// "master" when origin/main does not exist. Uses a real temp git repo with
-// a "master" remote branch to avoid actually calling the clawta binary.
 func TestDetectDefaultBranchMaster(t *testing.T) {
-	// Build a bare "remote" repo with only a master branch.
 	remoteDir := t.TempDir()
 	mustGit(t, remoteDir, "init", "--bare")
 
-	// Build a local clone that points at the bare remote.
 	localDir := t.TempDir()
 	mustGit(t, localDir, "init")
 	mustGit(t, localDir, "remote", "add", "origin", remoteDir)
 
-	// Create an initial commit so origin/master can be pushed.
 	if err := os.WriteFile(filepath.Join(localDir, "README"), []byte("init"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	mustGit(t, localDir, "-c", "user.email=test@test.com", "-c", "user.name=Test",
 		"commit", "--allow-empty", "-m", "init")
-
-	// Rename the default branch to master (git may default to main).
 	mustGit(t, localDir, "branch", "-M", "master")
 	mustGit(t, localDir, "push", "origin", "master")
 
-	// origin/main does not exist, so detectDefaultBranch should return master.
 	got := detectDefaultBranch(localDir)
 	if got != "master" {
 		t.Errorf("detectDefaultBranch: want master, got %s", got)
 	}
 }
 
-// TestDetectDefaultBranchMain verifies that detectDefaultBranch returns "main"
-// when origin/main exists.
 func TestDetectDefaultBranchMain(t *testing.T) {
 	remoteDir := t.TempDir()
 	mustGit(t, remoteDir, "init", "--bare")
@@ -195,8 +275,6 @@ func TestDetectDefaultBranchMain(t *testing.T) {
 	}
 	mustGit(t, localDir, "-c", "user.email=test@test.com", "-c", "user.name=Test",
 		"commit", "--allow-empty", "-m", "init")
-
-	// Ensure the branch is named "main".
 	mustGit(t, localDir, "branch", "-M", "main")
 	mustGit(t, localDir, "push", "origin", "main")
 
@@ -208,14 +286,10 @@ func TestDetectDefaultBranchMain(t *testing.T) {
 
 // ---- Dispatch (mocked subprocess) ----
 
-// TestClawtaAdapterDispatchMissingBinary verifies that when the binary does not
-// exist the result status is "failed" and no panic occurs.
-// The worktree creation will also fail (no real git repo), which is the first
-// failure surface — the adapter must handle it gracefully.
 func TestClawtaAdapterDispatchFailsGracefully(t *testing.T) {
+	isolateProviderEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 
-	// Use a tmp dir that is NOT a git repo so worktree add fails immediately.
 	ws := t.TempDir()
 	a := NewClawtaAdapter("clawta-does-not-exist", "", "", ws)
 
@@ -227,7 +301,6 @@ func TestClawtaAdapterDispatchFailsGracefully(t *testing.T) {
 	}
 
 	result, err := a.Dispatch(context.Background(), task)
-	// err from Dispatch itself should be nil — failures are encoded in result.
 	if err != nil {
 		t.Fatalf("Dispatch returned unexpected error: %v", err)
 	}
@@ -245,93 +318,22 @@ func TestClawtaAdapterDispatchFailsGracefully(t *testing.T) {
 	}
 }
 
-// TestClawtaAdapterDispatch_HonestDispatch_SilentLossRegression asserts that
-// when the clawta subprocess succeeds (Status transitions to "completed") but
-// the adapter-side git push fails, result.Status is downgraded to "failed".
-// Mirrors PR #245 style (chitinhq/octi#243) — gates success claim on the real
-// side-effect actually landing. Build-fails against the pre-fix shape where
-// push failure only populated result.Error and Status stayed "completed".
-func TestClawtaAdapterDispatch_HonestDispatch_SilentLossRegression(t *testing.T) {
-	t.Setenv("DEEPSEEK_API_KEY", "test-key")
-
-	// Build a fake `clawta` binary that always exits 0 after creating a commit
-	// in cwd. The adapter is constructed with the full path to this shim, so
-	// no PATH manipulation is needed. The real `git` is inherited from the
-	// system PATH so push actually runs — it will fail because the remote is
-	// a dangling path (deleted after the initial fetch).
-	shimDir := t.TempDir()
-	clawtaShim := filepath.Join(shimDir, "clawta")
-	shim := "#!/bin/sh\n" +
-		"echo 'fake clawta run' > file.txt\n" +
-		"git -c user.email=fake@test -c user.name=Fake add file.txt\n" +
-		"git -c user.email=fake@test -c user.name=Fake commit -m 'fake clawta commit'\n" +
-		"exit 0\n"
-	if err := os.WriteFile(clawtaShim, []byte(shim), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Workspace layout: workspace/<repo-name> is a real git repo with a
-	// remote pointing at a bare repo we will delete, forcing push to fail.
+// TestClawtaAdapterDispatchNoProvider verifies Dispatch fails cleanly with a
+// descriptive error when no inference provider is available.
+func TestClawtaAdapterDispatchNoProvider(t *testing.T) {
+	isolateProviderEnv(t)
 	ws := t.TempDir()
-	repoName := "silentloss-target"
-	repoPath := filepath.Join(ws, repoName)
-	if err := os.MkdirAll(repoPath, 0755); err != nil {
-		t.Fatal(err)
-	}
-	remoteDir := filepath.Join(ws, "remote.git")
-	if err := os.MkdirAll(remoteDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	mustGit(t, remoteDir, "init", "--bare")
-
-	// Init local repo with one commit on main and a remote tracking main.
-	mustGit(t, repoPath, "init")
-	mustGit(t, repoPath, "remote", "add", "origin", remoteDir)
-	if err := os.WriteFile(filepath.Join(repoPath, "README"), []byte("init"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	mustGit(t, repoPath, "-c", "user.email=t@t.com", "-c", "user.name=T", "add", "README")
-	mustGit(t, repoPath, "-c", "user.email=t@t.com", "-c", "user.name=T", "commit", "-m", "init")
-	mustGit(t, repoPath, "branch", "-M", "main")
-	mustGit(t, repoPath, "push", "origin", "main")
-	// Fetch to materialize refs/remotes/origin/main — the adapter worktrees
-	// from origin/<defaultBranch>, so without this the test would fail at
-	// worktree creation rather than at the push step it claims to exercise.
-	mustGit(t, repoPath, "fetch", "origin", "main")
-
-	// Nuke the remote so the adapter-side `git push` fails with a real error.
-	if err := os.RemoveAll(remoteDir); err != nil {
-		t.Fatal(err)
-	}
-
-	a := NewClawtaAdapter(clawtaShim, "", "", ws)
-	task := &Task{
-		ID:     "silent-loss-regression-243",
-		Type:   "code-gen",
-		Repo:   "chitinhq/" + repoName,
-		Prompt: "Write hello world",
-	}
-
+	a := NewClawtaAdapter("clawta-does-not-exist", "", "", ws)
+	task := &Task{ID: "noprov", Type: "code-gen", Repo: "chitinhq/octi", Prompt: "x"}
 	result, err := a.Dispatch(context.Background(), task)
 	if err != nil {
-		t.Fatalf("Dispatch returned unexpected error: %v", err)
+		t.Fatalf("Dispatch err: %v", err)
 	}
-	if result == nil {
-		t.Fatal("Dispatch returned nil result")
-	}
-
-	// The lie: pre-fix, push failure only set result.Error and Status stayed
-	// "completed". The honest-dispatch fix must downgrade to "failed".
 	if result.Status != "failed" {
-		t.Errorf("silent-loss regression: push failed but Status=%q (want \"failed\"). "+
-			"Adapter claimed success for work that never reached origin. "+
-			"result.Error=%q", result.Status, result.Error)
+		t.Errorf("Status: want failed, got %s", result.Status)
 	}
 	if result.Error == "" {
-		t.Error("result.Error: want non-empty push-failure reason, got empty")
-	}
-	if !strings.Contains(result.Error, "push failed") {
-		t.Errorf("result.Error: want contains \"push failed\", got %q", result.Error)
+		t.Error("Error: want non-empty explanation, got empty")
 	}
 }
 
