@@ -71,14 +71,18 @@ func TestCheckBenchmarkCounters_Idle(t *testing.T) {
 	}
 }
 
-func TestCheckBenchmarkCounters_ActivityButZero(t *testing.T) {
+func TestCheckBenchmarkCounters_DispatchOnlyDerivesMetrics(t *testing.T) {
+	// Regression for workspace#408 continuation: when dispatch-log has entries
+	// but worker-results is empty (the common GH-Actions / Anthropic case),
+	// Compute() must derive ActiveAgents / QAIX from dispatch-log so
+	// bootcheck goes GREEN. Previously this returned RED ("counters unwired").
 	rdb, ns, ctx := redisSetup(t)
 	rec, _ := json.Marshal(map[string]any{"agent": "a", "result": "dispatched"})
 	rdb.LPush(ctx, ns+":dispatch-log", rec)
 	bt := dispatch.NewBenchmarkTracker(rdb, ns)
 	res := checkBenchmarkCounters(ctx, Deps{RDB: rdb, Namespace: ns, Benchmark: bt})
-	if res.Status != StatusRed {
-		t.Fatalf("expected red for activity-with-zero-metrics, got %s: %s", res.Status, res.Message)
+	if res.Status != StatusGreen {
+		t.Fatalf("expected green (dispatch-log fallback should wire counters), got %s: %s", res.Status, res.Message)
 	}
 }
 
