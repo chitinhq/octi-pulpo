@@ -68,6 +68,10 @@ type DriverHealth struct {
 	OpenedAt       string `json:"opened_at,omitempty"`
 	LastSuccessAgo string `json:"last_success_ago,omitempty"`
 
+	// DaysSinceLastSuccess is the integer day-count since LastSuccess. -1 means
+	// never succeeded. Populated by ReadDriverHealth.
+	DaysSinceLastSuccess int `json:"days_since_last_success"`
+
 	// BudgetPct is the estimated remaining budget percentage (0-100).
 	// nil means unknown. Populated from Redis by the MCP health_report handler.
 	BudgetPct *int `json:"budget_pct,omitempty"`
@@ -309,6 +313,12 @@ func tierIndex(t CostTier) int {
 // on its circuit state, age, and optional budget percentage.
 func RecommendAction(h DriverHealth) string {
 	budgetLow := h.BudgetPct != nil && *h.BudgetPct < 15
+
+	// Staleness trumps CLOSED/HALF: a circuit that never opened can still be
+	// decommissioned/unreachable. Flag when LastSuccess is set AND >=2d old.
+	if h.CircuitState != "OPEN" && h.LastSuccess != "" && h.DaysSinceLastSuccess >= 2 {
+		return fmt.Sprintf("stale — last success %dd ago, investigate or remove", h.DaysSinceLastSuccess)
+	}
 
 	switch h.CircuitState {
 	case "OPEN":

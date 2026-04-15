@@ -1008,8 +1008,10 @@ type EnrichedHealthEntry struct {
 	Failures           int    `json:"failures"`
 	LastFailure        string `json:"last_failure,omitempty"`
 	LastSuccess        string `json:"last_success,omitempty"`
-	SecsSinceSuccess   int64  `json:"secs_since_last_success,omitempty"`
-	Recommendation     string `json:"recommendation"`
+	SecsSinceSuccess     int64  `json:"secs_since_last_success,omitempty"`
+	DaysSinceLastSuccess int    `json:"days_since_last_success"`
+	Stale                bool   `json:"stale"`
+	Recommendation       string `json:"recommendation"`
 }
 
 // enrichHealthReport adds derived fields to each DriverHealth entry.
@@ -1030,11 +1032,22 @@ func enrichHealthReport(drivers []routing.DriverHealth) []EnrichedHealthEntry {
 				e.SecsSinceSuccess = int64(now.Sub(t).Seconds())
 			}
 		}
+		e.DaysSinceLastSuccess = d.DaysSinceLastSuccess
+		// Stale = >=2d since last success, OR no recorded success at all.
+		// Stale drivers are unhealthy regardless of circuit state — a CLOSED
+		// circuit on a decommissioned driver is the classic false-positive.
+		e.Stale = (d.DaysSinceLastSuccess >= 2) || (d.LastSuccess == "" && d.DaysSinceLastSuccess == -1)
 
-		switch d.CircuitState {
-		case "OPEN":
+		switch {
+		case e.Stale && d.CircuitState != "OPEN":
+			if d.LastSuccess == "" {
+				e.Recommendation = fmt.Sprintf("%s: stale — no recorded success, investigate or remove", d.Name)
+			} else {
+				e.Recommendation = fmt.Sprintf("%s: stale — last success %dd ago, investigate or remove", d.Name, d.DaysSinceLastSuccess)
+			}
+		case d.CircuitState == "OPEN":
 			e.Recommendation = fmt.Sprintf("%s: budget exhausted or unreachable — check quota and reset circuit", d.Name)
-		case "HALF":
+		case d.CircuitState == "HALF":
 			e.Recommendation = fmt.Sprintf("%s: recovering — use with caution, monitor next run", d.Name)
 		default:
 			if e.SecsSinceSuccess > 3600 {

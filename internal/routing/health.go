@@ -46,7 +46,21 @@ func ReadDriverHealth(healthDir, driver string) DriverHealth {
 	dh.LastSuccess = hf.LastSuccess
 	dh.OpenedAt = hf.OpenedAt
 	dh.LastSuccessAgo = humanAgo(hf.LastSuccess)
+	dh.DaysSinceLastSuccess = daysSince(hf.LastSuccess)
 	return dh
+}
+
+// daysSince returns whole-day count since an RFC3339 timestamp. Returns -1
+// when the timestamp is empty or unparseable.
+func daysSince(ts string) int {
+	if ts == "" {
+		return -1
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return -1
+	}
+	return int(time.Since(t).Hours() / 24)
 }
 
 // humanAgo returns a human-readable duration since the given RFC3339 timestamp,
