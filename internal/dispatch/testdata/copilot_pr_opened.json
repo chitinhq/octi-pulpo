@@ -1,0 +1,22 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 137,
+    "title": "Guard against empty input in widget",
+    "user": {
+      "login": "copilot-swe-agent[bot]",
+      "type": "Bot"
+    },
+    "body": "Fixes #42\n\nAdds a nil-check before dereferencing the input.",
+    "draft": true
+  },
+  "repository": {
+    "full_name": "agentguardhq/widget",
+    "owner": {
+      "login": "agentguardhq"
+    }
+  },
+  "sender": {
+    "login": "copilot-swe-agent[bot]"
+  }
+}

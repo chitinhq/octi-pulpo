@@ -1,0 +1,21 @@
+{
+  "action": "assigned",
+  "issue": {
+    "number": 42,
+    "title": "Widget crashes on empty input",
+    "state": "open"
+  },
+  "assignee": {
+    "login": "Copilot",
+    "type": "Bot"
+  },
+  "repository": {
+    "full_name": "agentguardhq/widget",
+    "owner": {
+      "login": "agentguardhq"
+    }
+  },
+  "sender": {
+    "login": "jaredpleva"
+  }
+}

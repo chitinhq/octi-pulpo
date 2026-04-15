@@ -285,6 +285,23 @@ func (ws *WebhookServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	action := getString(payload, "action")
 	repo := getNestedString(payload, "repository", "full_name")
 
+	// T2b: Enterprise Copilot coding agent telemetry (agentguardhq).
+	// Purely observational — synthesize a DispatchRecord so swarm_today's
+	// tiers.copilot column counts the session, then fall through so any
+	// other handlers (which mostly no-op for agentguardhq/*) still run.
+	if ev := DetectCopilotAgentEvent(githubEvent, action, payload); ev != nil && ws.dispatcher != nil {
+		cpCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := ws.dispatcher.RecordCopilotAgentEvent(cpCtx, ev)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[octi-pulpo] copilot-agent telemetry error %s#%d: %v\n",
+				ev.Repo, maxInt(ev.Issue, ev.PR), err)
+		} else {
+			fmt.Fprintf(os.Stderr, "[octi-pulpo] copilot-agent %s %s issue=%d pr=%d\n",
+				ev.Kind, ev.Repo, ev.Issue, ev.PR)
+		}
+	}
+
 	// Draft-to-ready gate: detect when Copilot signals review_requested on a draft PR
 	// and promote it to ready-for-review so normal CI and review pipelines can fire.
 	if githubEvent == "pull_request" && action == "review_requested" && ws.draftConverter != nil {

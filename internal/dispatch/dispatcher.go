@@ -74,6 +74,9 @@ func ClassifyTier(driver string, event Event) string {
 	switch driver {
 	case "gh-actions", "ghactions", "github-actions":
 		return "actions"
+	case "copilot-agent":
+		// T2b: Enterprise Copilot coding agent (org-level webhook).
+		return "copilot"
 	case "clawta", "openclaw", "claude-code", "copilot-cli":
 		return "local"
 	case "anthropic", "claude", "remote", "remote-trigger":

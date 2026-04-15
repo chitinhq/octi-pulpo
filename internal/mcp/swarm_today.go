@@ -224,6 +224,7 @@ func classifyTiers(recent []dispatch.DispatchRecord, since time.Time) map[string
 	out := map[string]TierCounts{
 		"local":   {},
 		"actions": {},
+		"copilot": {},
 		"cloud":   {},
 		"desktop": {},
 		"human":   {},
@@ -253,6 +254,10 @@ func classifyTiers(recent []dispatch.DispatchRecord, since time.Time) map[string
 func tierFor(driver, agent string) string {
 	d := strings.ToLower(driver)
 	switch {
+	// T2b: Enterprise Copilot coding agent — must precede the generic
+	// "copilot" substring branch below which routes copilot-cli to desktop.
+	case d == "copilot-agent", strings.Contains(d, "copilot-agent"):
+		return "copilot"
 	case strings.Contains(d, "gh-actions"), strings.Contains(d, "actions"):
 		return "actions"
 	case strings.Contains(d, "anthropic"), strings.Contains(d, "claude-api"), strings.Contains(d, "cloud"):
@@ -287,7 +292,7 @@ func renderSwarmTodayText(r *SwarmTodayReport) string {
 	}
 	b.WriteString(issLine + "\n")
 
-	tierOrder := []string{"local", "actions", "cloud", "desktop", "human"}
+	tierOrder := []string{"local", "actions", "copilot", "cloud", "desktop", "human"}
 	parts := []string{}
 	var silentNote string
 	for _, t := range tierOrder {
