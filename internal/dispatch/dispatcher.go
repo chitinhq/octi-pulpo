@@ -87,8 +87,8 @@ type Dispatcher struct {
 // tests in this package still reference it. The dispatcher does not yet
 // invoke these adapters in DispatchBudget (the #245 adapter-gating was lost
 // in the same merge); that invocation is tracked separately. For this PR's
-// scope (chitinhq/octi#242, adapter-level honest-dispatch), the adapter's
-// own Status="failed" semantics carry the contract.
+// scope (chitinhq/octi#241, adapter-level honest-dispatch for claude_code),
+// the adapter's own Status="failed" semantics carry the contract.
 func (d *Dispatcher) SetAdapters(adapters ...Adapter) { d.adapters = adapters }
 
 // NewDispatcher creates an event-driven dispatcher.
