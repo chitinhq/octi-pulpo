@@ -254,10 +254,11 @@ func TestClawtaAdapterDispatchFailsGracefully(t *testing.T) {
 func TestClawtaAdapterDispatch_HonestDispatch_SilentLossRegression(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 
-	// Build a shim PATH with a fake `clawta` that always exits 0 after
-	// creating a commit in cwd. The real `git` is inherited from the system
-	// PATH so push actually runs — it will fail because the remote is a
-	// dangling path (deleted after clone).
+	// Build a fake `clawta` binary that always exits 0 after creating a commit
+	// in cwd. The adapter is constructed with the full path to this shim, so
+	// no PATH manipulation is needed. The real `git` is inherited from the
+	// system PATH so push actually runs — it will fail because the remote is
+	// a dangling path (deleted after the initial fetch).
 	shimDir := t.TempDir()
 	clawtaShim := filepath.Join(shimDir, "clawta")
 	shim := "#!/bin/sh\n" +
@@ -293,6 +294,10 @@ func TestClawtaAdapterDispatch_HonestDispatch_SilentLossRegression(t *testing.T)
 	mustGit(t, repoPath, "-c", "user.email=t@t.com", "-c", "user.name=T", "commit", "-m", "init")
 	mustGit(t, repoPath, "branch", "-M", "main")
 	mustGit(t, repoPath, "push", "origin", "main")
+	// Fetch to materialize refs/remotes/origin/main — the adapter worktrees
+	// from origin/<defaultBranch>, so without this the test would fail at
+	// worktree creation rather than at the push step it claims to exercise.
+	mustGit(t, repoPath, "fetch", "origin", "main")
 
 	// Nuke the remote so the adapter-side `git push` fails with a real error.
 	if err := os.RemoveAll(remoteDir); err != nil {
