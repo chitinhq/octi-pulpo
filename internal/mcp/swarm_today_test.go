@@ -59,7 +59,9 @@ func TestSwarmToday_Active(t *testing.T) {
 			{Name: "copilot", CircuitState: "CLOSED", LastSuccess: lastSuccess},
 		},
 		recent: []dispatch.DispatchRecord{
-			{Agent: "kernel-01", Driver: "anthropic", Result: "dispatched", Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339)},
+			// T2b Copilot agent (see #263). Replaces the retired T3
+			// anthropic/cloud record that previously seeded this test.
+			{Agent: "kernel-01", Driver: "copilot-agent", Result: "dispatched", Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339)},
 			{Agent: "kernel-02", Driver: "gh-actions", Result: "dispatched", Timestamp: now.Add(-20 * time.Minute).Format(time.RFC3339)},
 		},
 		budgetTodayC: 47,
@@ -82,8 +84,11 @@ func TestSwarmToday_Active(t *testing.T) {
 	if r.Swarm.LastRunWorkflow != "chitin-swarm-worker" || r.Swarm.RunsToday != 1 {
 		t.Fatalf("swarm mismatch: %+v", r.Swarm)
 	}
-	if r.Tiers["cloud"].Dispatches != 1 {
-		t.Fatalf("expected 1 cloud dispatch, got %+v", r.Tiers)
+	if r.Tiers["copilot"].Dispatches != 1 {
+		t.Fatalf("expected 1 copilot dispatch, got %+v", r.Tiers)
+	}
+	if _, hasCloud := r.Tiers["cloud"]; hasCloud {
+		t.Fatalf("cloud bucket should be retired post-2026-04-15, got %+v", r.Tiers)
 	}
 	if r.Tiers["actions"].Dispatches != 1 {
 		t.Fatalf("expected 1 actions dispatch, got %+v", r.Tiers)
@@ -136,6 +141,40 @@ func TestSwarmToday_StuckAndSilentLoss(t *testing.T) {
 	}
 	if r.Alerts.SilentDispatches != 5 || r.Alerts.StuckAgents != 1 || r.Alerts.StaleDrivers != 1 {
 		t.Fatalf("alerts mismatch: %+v", r.Alerts)
+	}
+}
+
+// TestClassifyTiers_SkippedNotCountedAsHuman pins the phantom-silent-loss fix.
+// The workspace-pr-review-agent fast-path writes dispatch-log entries with
+// driver="" + result="skipped" when the router no-ops. Before the fix,
+// classifyTiers would bucket those into `human` via the driver="" fallback
+// and falsely flag silent-loss once the count crossed 5. The fix skips
+// result=="skipped" records outright.
+func TestClassifyTiers_SkippedNotCountedAsHuman(t *testing.T) {
+	now := fixedNow()
+	since := now.Add(-24 * time.Hour)
+	var recent []dispatch.DispatchRecord
+	for i := 0; i < 100; i++ {
+		recent = append(recent, dispatch.DispatchRecord{
+			Agent:     "workspace-pr-review-agent",
+			Driver:    "",
+			Result:    "skipped",
+			Timestamp: now.Add(-time.Duration(i) * time.Minute).Format(time.RFC3339),
+		})
+	}
+	// One legitimate human escalation, to prove the bucket still works.
+	recent = append(recent, dispatch.DispatchRecord{
+		Agent: "needs-human", Driver: "human", Result: "dispatched",
+		Timestamp: now.Add(-5 * time.Minute).Format(time.RFC3339),
+	})
+
+	tiers := classifyTiers(recent, since)
+
+	if got := tiers["human"].Dispatches; got != 1 {
+		t.Fatalf("human dispatches: want 1 (skipped records excluded), got %d", got)
+	}
+	if tiers["human"].SilentLoss {
+		t.Fatalf("human tier should not flag silent-loss when skipped records are excluded")
 	}
 }
 

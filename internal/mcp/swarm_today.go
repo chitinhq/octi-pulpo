@@ -225,13 +225,20 @@ func classifyTiers(recent []dispatch.DispatchRecord, since time.Time) map[string
 		"local":   {},
 		"actions": {},
 		"copilot": {},
-		"cloud":   {},
 		"desktop": {},
 		"human":   {},
 	}
 	for _, r := range recent {
 		ts, err := time.Parse(time.RFC3339, r.Timestamp)
 		if err != nil || ts.Before(since) {
+			continue
+		}
+		// Phantom-silent-loss fix (octi#243): dispatch-log entries with
+		// Result=="skipped" are router no-ops (e.g. workspace-pr-review-agent
+		// retries), not real dispatches. Counting them via the driver=""
+		// fallback inflated the `human` bucket by ~450/day and falsely
+		// triggered silent-loss alerts.
+		if r.Result == "skipped" {
 			continue
 		}
 		tier := tierFor(r.Driver, r.Agent)
@@ -260,8 +267,6 @@ func tierFor(driver, agent string) string {
 		return "copilot"
 	case strings.Contains(d, "gh-actions"), strings.Contains(d, "actions"):
 		return "actions"
-	case strings.Contains(d, "anthropic"), strings.Contains(d, "claude-api"), strings.Contains(d, "cloud"):
-		return "cloud"
 	case strings.Contains(d, "clawta"), strings.Contains(d, "ollama"), strings.Contains(d, "local"):
 		return "local"
 	case strings.Contains(d, "copilot"), strings.Contains(d, "desktop"), strings.Contains(d, "prompt-cli"), strings.Contains(d, "openclaw"):
@@ -292,7 +297,7 @@ func renderSwarmTodayText(r *SwarmTodayReport) string {
 	}
 	b.WriteString(issLine + "\n")
 
-	tierOrder := []string{"local", "actions", "copilot", "cloud", "desktop", "human"}
+	tierOrder := []string{"local", "actions", "copilot", "desktop", "human"}
 	parts := []string{}
 	var silentNote string
 	for _, t := range tierOrder {
