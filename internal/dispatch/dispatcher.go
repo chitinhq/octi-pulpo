@@ -79,7 +79,17 @@ type Dispatcher struct {
 	presUser  string                // user ID for presence checks
 	queueFile string                // ~/.chitin/queue.txt (compatibility bridge)
 	namespace string
+	adapters  []Adapter // execution-surface adapters (registered via SetAdapters)
 }
+
+// SetAdapters registers adapters that execute a dispatched task on a real
+// surface. Restored after merge #226 clobbered the wiring from #245 —
+// tests in this package still reference it. The dispatcher does not yet
+// invoke these adapters in DispatchBudget (the #245 adapter-gating was lost
+// in the same merge); that invocation is tracked separately. For this PR's
+// scope (chitinhq/octi#242, adapter-level honest-dispatch), the adapter's
+// own Status="failed" semantics carry the contract.
+func (d *Dispatcher) SetAdapters(adapters ...Adapter) { d.adapters = adapters }
 
 // NewDispatcher creates an event-driven dispatcher.
 func NewDispatcher(rdb *redis.Client, router *routing.Router, coord *coordination.Engine, events *EventRouter, queueFile, namespace string) *Dispatcher {

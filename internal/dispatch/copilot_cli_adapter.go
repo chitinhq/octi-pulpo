@@ -140,11 +140,21 @@ func (a *CopilotCLIAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterR
 	}
 
 	// Push branch and open PR if Copilot produced commits.
+	//
+	// Honest-dispatch contract (refs: chitinhq/octi#242, chitinhq/octi#245,
+	// workspace#408): Status="completed" must mean the agent's work reached
+	// an observable surface (PR on origin). If `git push` or `gh pr create`
+	// fails, revert Status to "failed" so the outer dispatcher in
+	// dispatcher.go:264 maps it to Action="failed" instead of silently
+	// claiming Action="dispatched" on a branch the remote never saw — the
+	// worktree is about to be torn down by `cleanupWorktree`, so any such
+	// claim is a silent loss.
 	if result.Status == "completed" {
 		if hasNewCommits(worktreePath, "origin/"+defaultBranch) {
 			pushCmd := exec.CommandContext(ctx, "git", "push", "-u", "origin", branchName)
 			pushCmd.Dir = worktreePath
 			if pushOut, pushErr := pushCmd.CombinedOutput(); pushErr != nil {
+				result.Status = "failed"
 				result.Error = fmt.Sprintf("push failed: %s: %s", pushErr, string(pushOut))
 			} else {
 				prTitle := truncate(task.Prompt, 60)
@@ -157,6 +167,7 @@ func (a *CopilotCLIAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterR
 				)
 				prCmd.Dir = worktreePath
 				if prOut, prErr := prCmd.CombinedOutput(); prErr != nil {
+					result.Status = "failed"
 					result.Error = fmt.Sprintf("pr create failed: %s: %s", prErr, string(prOut))
 				} else {
 					result.Output = string(prOut)
