@@ -77,19 +77,23 @@ func scoreVerdict(score float64, triageFlag bool) string {
 	}
 }
 
-// Leaderboard ranks all agents with run history by productivity score (highest first).
-// Agents with no recorded runs are omitted.
+// Leaderboard ranks all agents by productivity score (highest first). Agents with
+// only dispatch-counter stats (no completion callbacks) are included with a
+// stats-derived score so production dispatches to GH Actions / Anthropic
+// (which never call RecordWorkerResult) still show up. See workspace#408.
 func (ps *ProfileStore) Leaderboard(ctx context.Context) ([]LeaderboardEntry, error) {
 	profiles, err := ps.AllProfiles(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("leaderboard: %w", err)
 	}
 
+	seen := make(map[string]bool, len(profiles))
 	entries := make([]LeaderboardEntry, 0, len(profiles))
 	for _, p := range profiles {
 		if len(p.RecentResults) == 0 {
 			continue
 		}
+		seen[p.Name] = true
 		s := round2(Score(p))
 		entries = append(entries, LeaderboardEntry{
 			Agent:       p.Name,
@@ -102,6 +106,26 @@ func (ps *ProfileStore) Leaderboard(ctx context.Context) ([]LeaderboardEntry, er
 			TriageFlag:  p.TriageFlag,
 			RunCount:    len(p.RecentResults),
 		})
+	}
+
+	// Fold in agents known only via the agent_stats hash (dispatches-only, no
+	// completion callbacks). Score = successes*5 + dispatches*0.1 so a
+	// dispatched-but-never-completed agent ranks above absent but below a
+	// confirmed-successful one.
+	if stats, statsErr := ps.AllStats(ctx); statsErr == nil {
+		for name, s := range stats {
+			if seen[name] || s.DispatchesTotal == 0 {
+				continue
+			}
+			score := round2(float64(s.SuccessesTotal)*5.0 + float64(s.DispatchesTotal)*0.1)
+			entries = append(entries, LeaderboardEntry{
+				Agent:      name,
+				Score:      score,
+				Verdict:    scoreVerdict(score, false),
+				AvgCommits: round2(s.SuccessRate()),
+				RunCount:   int(s.DispatchesTotal),
+			})
+		}
 	}
 
 	sort.Slice(entries, func(i, j int) bool {

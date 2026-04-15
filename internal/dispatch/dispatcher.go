@@ -290,6 +290,14 @@ func (d *Dispatcher) DispatchBudget(ctx context.Context, event Event, agentName 
 	result.Reason = fmt.Sprintf("dispatched via %s (tier: %s, confidence: %.1f)", routeDecision.Driver, routeDecision.Tier, routeDecision.Confidence)
 
 	d.recordDispatch(ctx, agentName, event, result)
+
+	// Wire agent_leaderboard sink: increment dispatches_total counter so the
+	// MCP leaderboard tool has something to report even when the completion
+	// callback (RecordWorkerResult) never fires — which is the norm for
+	// GH-Actions and Anthropic-API drivers. See workspace#408.
+	if d.profiles != nil {
+		_ = d.profiles.RecordDispatch(ctx, agentName)
+	}
 	return result, nil
 }
 
@@ -419,6 +427,11 @@ func (d *Dispatcher) RecordWorkerResult(ctx context.Context, agentName string, e
 			HadCommits: hadCommits,
 			Timestamp:  now.Format(time.RFC3339),
 		})
+		// Leaderboard sink: on a real successful run (exit=0 + commits), bump the
+		// successes_total counter + timestamp so agent_leaderboard can surface it.
+		if exitCode == 0 && hadCommits {
+			_ = d.profiles.RecordSuccess(ctx, agentName, "")
+		}
 	}
 }
 
