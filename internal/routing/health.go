@@ -101,7 +101,13 @@ func DiscoverDrivers(healthDir string) []string {
 		}
 		name := e.Name()
 		if strings.HasSuffix(name, ".json") {
-			drivers = append(drivers, strings.TrimSuffix(name, ".json"))
+			stem := strings.TrimSuffix(name, ".json")
+			if stem == "" {
+				// Skip files with no driver-name stem (e.g., ".json") — these
+				// would surface as empty-name ghosts in health reports.
+				continue
+			}
+			drivers = append(drivers, stem)
 		}
 	}
 	return drivers
