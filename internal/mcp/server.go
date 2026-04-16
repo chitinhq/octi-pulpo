@@ -388,6 +388,15 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 			"pending_agents":    agents,
 			"recent_dispatches": recent,
 		}
+		// Surface swarm-circuit pause state so /go can see at a glance
+		// whether sentinel's patrol has frozen the dispatcher (retry_storm
+		// / resource_burn / repo_health / telemetry_integrity). Always
+		// present so consumers can rely on the key.
+		if sc := s.dispatcher.SwarmCircuit(); sc != nil {
+			status["swarm_circuit"] = sc.Snapshot()
+		} else {
+			status["swarm_circuit"] = map[string]interface{}{"paused": false}
+		}
 		// Augment with chitin session state so callers see the active
 		// session id (for rating) and recent session history alongside
 		// dispatch info. Best-effort: if chitin isn't installed or the
@@ -825,10 +834,31 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 		var args struct {
 			Driver string `json:"driver"`
 			Note   string `json:"note"`
+			Scope  string `json:"scope"` // "driver" (default) or "swarm"
 		}
 		json.Unmarshal(params.Arguments, &args)
+
+		// Scope=swarm clears sentinel's swarm-wide circuit (the patrol-
+		// driven pause flag tailed from events.jsonl) without touching
+		// any per-driver routing health. The Driver field is ignored
+		// when scope=swarm.
+		if args.Scope == "swarm" {
+			if s.dispatcher == nil {
+				return errorResp(req.ID, -32000, "dispatcher not initialized")
+			}
+			sc := s.dispatcher.SwarmCircuit()
+			if sc == nil {
+				return errorResp(req.ID, -32000, "swarm circuit subscriber not wired")
+			}
+			prev := sc.Snapshot()
+			sc.Reset(args.Note)
+			msg := fmt.Sprintf("circuit_reset(swarm): paused=%v→false (was signal=%s)", prev.Paused, prev.Signal)
+			data, _ := json.Marshal(sc.Snapshot())
+			return textResult(req.ID, msg+"\n"+string(data))
+		}
+
 		if args.Driver == "" {
-			return errorResp(req.ID, -32602, "driver is required")
+			return errorResp(req.ID, -32602, "driver is required (or set scope=\"swarm\")")
 		}
 		// Capture previous state for the response message.
 		prev := routing.DriverHealth{Name: args.Driver}

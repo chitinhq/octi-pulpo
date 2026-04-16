@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/chitinhq/octi-pulpo/internal/budget"
 	"github.com/chitinhq/octi-pulpo/internal/coordination"
 	"github.com/chitinhq/octi-pulpo/internal/dispatch"
+	"github.com/chitinhq/octi-pulpo/internal/dispatch/swarmcircuit"
 	"github.com/chitinhq/octi-pulpo/internal/learner"
 	"github.com/chitinhq/octi-pulpo/internal/mcp"
 	"github.com/chitinhq/octi-pulpo/internal/memory"
@@ -123,6 +125,20 @@ func main() {
 		return float64(closed) / float64(len(health))
 	})
 	dispatcher.SetProfiles(profiles)
+
+	// Wire swarm-circuit subscriber: tails the chitin events.jsonl stream
+	// for circuit.<signal> events emitted by sentinel's patrol (chitinhq/
+	// sentinel internal/circuit) and pauses dispatch when any signal
+	// trips. See internal/dispatch/swarmcircuit. Background goroutine —
+	// stops when the process exits; SIGTERM-driven shutdown elsewhere
+	// handles graceful drain.
+	swarmCircuit := swarmcircuit.New("", log.New(os.Stderr, "swarm-circuit ", log.LstdFlags))
+	go func() {
+		if err := swarmCircuit.Run(context.Background()); err != nil && err != context.Canceled {
+			log.Printf("swarm-circuit subscriber exited: %v", err)
+		}
+	}()
+	dispatcher.SetSwarmCircuit(swarmCircuit)
 
 	// Set up sprint store
 	sprintStore := sprint.NewStore(rdb, namespace)
