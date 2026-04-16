@@ -11,6 +11,7 @@ import (
 
 	"github.com/chitinhq/octi-pulpo/internal/budget"
 	"github.com/chitinhq/octi-pulpo/internal/coordination"
+	"github.com/chitinhq/octi-pulpo/internal/dispatch/swarmcircuit"
 	"github.com/chitinhq/octi-pulpo/internal/flow"
 	"github.com/chitinhq/octi-pulpo/internal/presence"
 	"github.com/chitinhq/octi-pulpo/internal/routing"
@@ -102,7 +103,21 @@ type Dispatcher struct {
 	queueFile string                // ~/.chitin/queue.txt (compatibility bridge)
 	namespace string
 	adapters  []Adapter // execution-surface adapters; picked by Name() against routed driver
+
+	// swarmCircuit reflects the swarm-wide pause flag driven by sentinel's
+	// circuit-breaker patrol (chitinhq/sentinel internal/circuit). When
+	// non-nil and Paused()=true, Dispatch short-circuits with action="paused".
+	// Distinct from the per-driver health circuit in routing.Router.
+	swarmCircuit *swarmcircuit.Subscriber
 }
+
+// SetSwarmCircuit installs the swarm-circuit subscriber on the dispatcher.
+// nil disables the gate.
+func (d *Dispatcher) SetSwarmCircuit(s *swarmcircuit.Subscriber) { d.swarmCircuit = s }
+
+// SwarmCircuit returns the installed subscriber (may be nil). Surfaced
+// so the MCP layer can read snapshot state into dispatch_status.
+func (d *Dispatcher) SwarmCircuit() *swarmcircuit.Subscriber { return d.swarmCircuit }
 
 // SetAdapters registers adapters that execute a dispatched task on a real
 // surface (HTTP repository_dispatch, Anthropic API, Claude Code CLI, etc.).
@@ -165,6 +180,19 @@ func (d *Dispatcher) DispatchBudget(ctx context.Context, event Event, agentName 
 		Budget:     budget,
 		DispatchID: newDispatchID(),
 		Timestamp:  now.Format(time.RFC3339),
+	}
+
+	// 0a. Swarm-circuit gate: if sentinel's patrol has tripped any of the
+	// four signals (retry_storm / resource_burn / repo_health /
+	// telemetry_integrity), pause new dispatches until an operator
+	// resets the breaker. This is fleet-wide, distinct from per-driver
+	// health in routing.Router.
+	if d.swarmCircuit != nil && d.swarmCircuit.Paused() {
+		st := d.swarmCircuit.Snapshot()
+		result.Action = "paused"
+		result.Reason = fmt.Sprintf("swarm circuit open (%s): %s", st.Signal, st.Reason)
+		d.recordDispatch(ctx, agentName, event, result)
+		return result, nil
 	}
 
 	// 0. Validate: repo-scoped events must carry a non-empty Repo.
