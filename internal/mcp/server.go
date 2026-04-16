@@ -74,6 +74,7 @@ type Server struct {
 	rdb              *redis.Client
 	redisNS          string
 	bootcheckCache   *bootcheck.Cache
+	gateRunner       GateRunner
 }
 
 // SetBootcheckCache enables the bootcheck_status MCP tool.
@@ -548,16 +549,54 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 			return errorResp(req.ID, -32000, "sprint store not initialized")
 		}
 		var args struct {
-			Repo     string `json:"repo"`
-			IssueNum int    `json:"issue_num"`
-			Summary  string `json:"summary"`
+			Repo       string `json:"repo"`
+			IssueNum   int    `json:"issue_num"`
+			Summary    string `json:"summary"`
+			SkipGates  bool   `json:"skip_gates"`
 		}
 		json.Unmarshal(params.Arguments, &args)
 		if args.IssueNum == 0 {
 			return errorResp(req.ID, -32602, "issue_num is required")
 		}
+		// Fetch sprint items once and reuse for all repo lookups (avoids repeated
+		// Redis O(n) scans across DefaultRepos).
+		allItems, _ := s.sprintStore.GetAll(ctx)
+		// Resolve sprint item for a repo. Returns (found, prNumber). prNumber may
+		// legitimately be 0 for an existing item with no linked PR — callers must
+		// branch on `found`, not on prNumber, to decide whether the item exists.
+		resolveItem := func(repo string) (bool, int) {
+			for _, it := range allItems {
+				if it.Repo == repo && it.IssueNum == args.IssueNum {
+					return true, it.PRNumber
+				}
+			}
+			return false, 0
+		}
+		// Run gate chain unless explicitly skipped (migration escape hatch).
+		// Caller is responsible for confirming the item exists before invoking,
+		// so gates always run against a real sprint item (possibly with empty ref).
+		runGates := func(repo string, prNumber int) (Response, bool) {
+			if args.SkipGates {
+				return Response{}, false
+			}
+			failed, err := s.runSprintCompleteGates(ctx, repo, prNumber)
+			if err != nil {
+				return errorResp(req.ID, -32000,
+					fmt.Sprintf("sprint_complete blocked: gate %s failed: %v", failed, err)), true
+			}
+			return Response{}, false
+		}
 		if args.Repo == "" {
 			for _, repo := range sprint.DefaultRepos {
+				// Only run gates if the item exists in this repo. Use `found` —
+				// not prNumber == 0 — so items without a linked PR still gate.
+				found, prNumber := resolveItem(repo)
+				if !found {
+					continue
+				}
+				if resp, block := runGates(repo, prNumber); block {
+					return resp
+				}
 				unblocked, err := s.sprintStore.Complete(ctx, repo, args.IssueNum)
 				if err == nil {
 					args.Repo = repo
@@ -580,6 +619,17 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 				}
 			}
 			return errorResp(req.ID, -32000, fmt.Sprintf("issue #%d not found in any sprint repo", args.IssueNum))
+		}
+		// Resolve item before running gates so a missing sprint item surfaces as
+		// "not found" rather than a misleading gate failure (e.g., empty-ref CI
+		// check against cwd).
+		found, prNumber := resolveItem(args.Repo)
+		if !found {
+			return errorResp(req.ID, -32000,
+				fmt.Sprintf("issue #%d not found in sprint repo %s", args.IssueNum, args.Repo))
+		}
+		if resp, block := runGates(args.Repo, prNumber); block {
+			return resp
 		}
 		unblocked, err := s.sprintStore.Complete(ctx, args.Repo, args.IssueNum)
 		if err != nil {
@@ -1331,6 +1381,7 @@ func toolDefs() []ToolDef {
 					"issue_num": map[string]interface{}{"type": "number", "description": "GitHub issue number to mark done"},
 					"repo":      map[string]string{"type": "string", "description": "Repo (e.g. chitinhq/octi-pulpo). If omitted, all tracked repos are searched."},
 					"summary":   map[string]string{"type": "string", "description": "Optional run summary. When provided, closes the GitHub issue and posts this text as a comment. Leave empty to only update Redis without touching GitHub."},
+					"skip_gates": map[string]string{"type": "boolean", "description": "Migration escape hatch — skip the chitin gate chain (validate/check_ci_passed). Default false; gates block completion on failure."},
 				},
 				"required": []string{"issue_num"},
 			},
