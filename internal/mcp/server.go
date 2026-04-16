@@ -558,25 +558,28 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 		if args.IssueNum == 0 {
 			return errorResp(req.ID, -32602, "issue_num is required")
 		}
-		// Resolve PR number (if any) so gates can target the linked PR.
-		resolvePR := func(repo string) int {
-			items, err := s.sprintStore.GetAll(ctx)
-			if err != nil {
-				return 0
-			}
-			for _, it := range items {
+		// Fetch sprint items once and reuse for all repo lookups (avoids repeated
+		// Redis O(n) scans across DefaultRepos).
+		allItems, _ := s.sprintStore.GetAll(ctx)
+		// Resolve sprint item for a repo. Returns (found, prNumber). prNumber may
+		// legitimately be 0 for an existing item with no linked PR — callers must
+		// branch on `found`, not on prNumber, to decide whether the item exists.
+		resolveItem := func(repo string) (bool, int) {
+			for _, it := range allItems {
 				if it.Repo == repo && it.IssueNum == args.IssueNum {
-					return it.PRNumber
+					return true, it.PRNumber
 				}
 			}
-			return 0
+			return false, 0
 		}
 		// Run gate chain unless explicitly skipped (migration escape hatch).
-		runGates := func(repo string) (Response, bool) {
+		// Caller is responsible for confirming the item exists before invoking,
+		// so gates always run against a real sprint item (possibly with empty ref).
+		runGates := func(repo string, prNumber int) (Response, bool) {
 			if args.SkipGates {
 				return Response{}, false
 			}
-			failed, err := s.runSprintCompleteGates(ctx, repo, resolvePR(repo))
+			failed, err := s.runSprintCompleteGates(ctx, repo, prNumber)
 			if err != nil {
 				return errorResp(req.ID, -32000,
 					fmt.Sprintf("sprint_complete blocked: gate %s failed: %v", failed, err)), true
@@ -585,11 +588,13 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 		}
 		if args.Repo == "" {
 			for _, repo := range sprint.DefaultRepos {
-				// Peek: only run gates if the item exists in this repo.
-				if pr := resolvePR(repo); pr == 0 {
-					// No match in this repo — skip to next without running gates.
-					// (Complete will still error and we move on.)
-				} else if resp, block := runGates(repo); block {
+				// Only run gates if the item exists in this repo. Use `found` —
+				// not prNumber == 0 — so items without a linked PR still gate.
+				found, prNumber := resolveItem(repo)
+				if !found {
+					continue
+				}
+				if resp, block := runGates(repo, prNumber); block {
 					return resp
 				}
 				unblocked, err := s.sprintStore.Complete(ctx, repo, args.IssueNum)
@@ -615,7 +620,15 @@ func (s *Server) handleToolCall(req Request) (resp Response) {
 			}
 			return errorResp(req.ID, -32000, fmt.Sprintf("issue #%d not found in any sprint repo", args.IssueNum))
 		}
-		if resp, block := runGates(args.Repo); block {
+		// Resolve item before running gates so a missing sprint item surfaces as
+		// "not found" rather than a misleading gate failure (e.g., empty-ref CI
+		// check against cwd).
+		found, prNumber := resolveItem(args.Repo)
+		if !found {
+			return errorResp(req.ID, -32000,
+				fmt.Sprintf("issue #%d not found in sprint repo %s", args.IssueNum, args.Repo))
+		}
+		if resp, block := runGates(args.Repo, prNumber); block {
 			return resp
 		}
 		unblocked, err := s.sprintStore.Complete(ctx, args.Repo, args.IssueNum)

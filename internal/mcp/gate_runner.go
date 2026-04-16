@@ -30,9 +30,19 @@ func (execGateRunner) Run(ctx context.Context, gate string, ref string) error {
 	cmd := exec.CommandContext(ctx, "chitin", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("gate %s failed: %v: %s", gate, err, string(out))
+		return fmt.Errorf("gate %s failed: %v: %s", gate, err, truncateOutput(out, 2048))
 	}
 	return nil
+}
+
+// truncateOutput returns the last `max` bytes of `out`, prefixed with a marker
+// when truncation occurred. Keeps JSON-RPC error payloads bounded and avoids
+// leaking large env/path dumps from chatty gate scripts.
+func truncateOutput(out []byte, max int) string {
+	if len(out) <= max {
+		return string(out)
+	}
+	return fmt.Sprintf("...[truncated %d bytes]...%s", len(out)-max, string(out[len(out)-max:]))
 }
 
 // SetGateRunner overrides the default gate runner. Used by tests and to wire a
