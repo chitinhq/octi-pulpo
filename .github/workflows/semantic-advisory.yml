@@ -1,0 +1,19 @@
+name: semantic-advisory
+
+# Calls the reusable semantic-advisory workflow on PR open/sync.
+# Advisory only — never blocks merge. Reusable defaults to ci_mock=1 so
+# GH-hosted runners produce a heuristic verdict instead of needing ollama.
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  advisory:
+    uses: chitinhq/chitin/.github/workflows/semantic-advisory.yml@main
+    # Advisory-only: never block merge even if the reusable workflow errors.
+    continue-on-error: true

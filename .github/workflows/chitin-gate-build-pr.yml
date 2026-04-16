@@ -1,0 +1,14 @@
+name: chitin-gate validate
+
+# Calls the reusable chitin-gate workflow at stage=validate on every PR.
+# Pinned to @main for now; tag-pin in a follow-up once chitin cuts a release.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    uses: chitinhq/chitin/.github/workflows/chitin-gate.yml@main
+    with:
+      stage: build

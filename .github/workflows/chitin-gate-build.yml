@@ -1,0 +1,14 @@
+name: chitin-gate build
+
+# Calls the reusable chitin-gate workflow at stage=build on push to main.
+# Pinned to @main for now; tag-pin in a follow-up once chitin cuts a release.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    uses: chitinhq/chitin/.github/workflows/chitin-gate.yml@main
+    with:
+      stage: build
