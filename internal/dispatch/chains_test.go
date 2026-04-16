@@ -10,12 +10,15 @@ import (
 func TestDefaultChains_KeyAgentsExist(t *testing.T) {
 	chains := DefaultChains()
 
-	// Verify key chain entries exist
+	// Verify key chain entries exist. Squad-era fan-outs
+	// (jared-conductor, director, *-em) and dead-repo chains
+	// (cloud-sr/qa, octi-pulpo-sr, studio-sr, office-sim-sr) were
+	// excised in octi#271 Phase 1; absence is enforced by
+	// TestNoFossilAgentsInChains.
 	required := []string{
-		"kernel-sr", "cloud-sr", "shellforge-sr",
-		"kernel-qa", "cloud-qa",
-		"workspace-pr-review-agent", "code-review-agent-cloud",
-		"jared-conductor", "director",
+		"kernel-sr", "shellforge-sr",
+		"kernel-qa", "shellforge-qa",
+		"workspace-pr-review-agent",
 	}
 	for _, name := range required {
 		if _, ok := chains[name]; !ok {

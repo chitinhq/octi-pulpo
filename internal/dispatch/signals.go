@@ -22,16 +22,14 @@ type SignalWatcher struct {
 	namespace  string
 	log        *log.Logger
 
-	// squadSeniors maps squad prefixes to senior/architect agents
-	// that should be dispatched on "need-help" signals.
-	squadSeniors map[string]string
+	// repoSeniors maps live repo names to senior/architect agents
+	// that should be dispatched on "need-help" signals. Keyed to
+	// LiveRepos (see fossil_regression_test.go).
+	repoSeniors map[string]string
 
-	// triageAgents maps squad prefixes to triage agents
+	// triageAgents maps repo names to triage agents
 	// that should be dispatched on "blocked" signals.
 	triageAgents map[string]string
-
-	// allEMs is the list of all EM agents that receive director broadcasts.
-	allEMs []string
 }
 
 // NewSignalWatcher creates a signal watcher connected to Redis pub/sub.
@@ -41,22 +39,18 @@ func NewSignalWatcher(dispatcher *Dispatcher, rdb *redis.Client, namespace strin
 		rdb:        rdb,
 		namespace:  namespace,
 		log:        log.New(os.Stderr, "signal-watcher: ", log.LstdFlags),
-		squadSeniors: map[string]string{
+		repoSeniors: map[string]string{
 			"kernel":     "kernel-sr",
-			"cloud":      "cloud-sr",
 			"shellforge": "shellforge-sr",
-			"octi-pulpo": "octi-pulpo-sr",
-			"studio":     "studio-sr",
-			"office-sim": "office-sim-sr",
+			"clawta":     "clawta-sr",
+			"sentinel":   "sentinel-sr",
+			"llmint":     "llmint-sr",
+			"octi":       "octi-sr",
+			"workspace":  "workspace-sr",
+			"ganglia":    "ganglia-sr",
 		},
 		triageAgents: map[string]string{
 			"kernel": "triage-failing-ci-agent",
-			"cloud":  "ci-triage-agent-cloud",
-		},
-		allEMs: []string{
-			"kernel-em", "cloud-em", "shellforge-em",
-			"octi-pulpo-em", "studio-em", "marketing-em",
-			"design-em", "site-em", "qa-em",
 		},
 	}
 }
@@ -115,7 +109,11 @@ func (sw *SignalWatcher) handleSignal(ctx context.Context, raw string) {
 	case "blocked":
 		sw.handleBlocked(ctx, sig)
 	case "directive":
-		sw.handleDirective(ctx, sig)
+		// Squad-era director broadcast was excised in octi#271 Phase 1
+		// (all 9 *-em agents targeted by allEMs were dead). Directive
+		// signals now log for observability only; re-introduce a
+		// handler here if a live EM role is ever restored.
+		sw.log.Printf("directive signal from %s (ignored; squad fan-out removed in octi#271)", sig.AgentID)
 	case "completed":
 		// Completion signals are handled by the chain system in the worker,
 		// but we log them for observability.
@@ -125,12 +123,12 @@ func (sw *SignalWatcher) handleSignal(ctx context.Context, raw string) {
 	}
 }
 
-// handleNeedHelp dispatches the squad's senior developer to assist.
+// handleNeedHelp dispatches the repo's senior developer to assist.
 func (sw *SignalWatcher) handleNeedHelp(ctx context.Context, sig signalPayload) {
-	squad := inferSquad(sig.AgentID)
-	senior, ok := sw.squadSeniors[squad]
+	repo := inferSquad(sig.AgentID)
+	senior, ok := sw.repoSeniors[repo]
 	if !ok {
-		sw.log.Printf("no senior mapped for squad %q (agent: %s)", squad, sig.AgentID)
+		sw.log.Printf("no senior mapped for repo %q (agent: %s)", repo, sig.AgentID)
 		return
 	}
 
@@ -154,12 +152,12 @@ func (sw *SignalWatcher) handleNeedHelp(ctx context.Context, sig signalPayload) 
 	sw.log.Printf("need-help -> dispatched %s (%s)", senior, result.Action)
 }
 
-// handleBlocked dispatches the squad's triage agent.
+// handleBlocked dispatches the repo's triage agent.
 func (sw *SignalWatcher) handleBlocked(ctx context.Context, sig signalPayload) {
-	squad := inferSquad(sig.AgentID)
-	triage, ok := sw.triageAgents[squad]
+	repo := inferSquad(sig.AgentID)
+	triage, ok := sw.triageAgents[repo]
 	if !ok {
-		sw.log.Printf("no triage agent for squad %q (agent: %s)", squad, sig.AgentID)
+		sw.log.Printf("no triage agent for repo %q (agent: %s)", repo, sig.AgentID)
 		return
 	}
 
@@ -183,56 +181,27 @@ func (sw *SignalWatcher) handleBlocked(ctx context.Context, sig signalPayload) {
 	sw.log.Printf("blocked -> dispatched %s (%s)", triage, result.Action)
 }
 
-// handleDirective broadcasts to all EM agents when a directive is published.
-func (sw *SignalWatcher) handleDirective(ctx context.Context, sig signalPayload) {
-	event := Event{
-		Type:   EventSignal,
-		Source: sig.AgentID,
-		Payload: map[string]string{
-			"signal_type": "directive",
-			"from_agent":  sig.AgentID,
-			"directive":   sig.Payload,
-		},
-		Priority: 1,
-	}
-
-	var dispatched int
-	for _, em := range sw.allEMs {
-		result, err := sw.dispatcher.Dispatch(ctx, event, em, 1)
-		if err != nil {
-			sw.log.Printf("dispatch %s for directive: %v", em, err)
-			continue
-		}
-		if result.Action == "dispatched" {
-			dispatched++
-		}
-	}
-	sw.log.Printf("directive -> dispatched %d/%d EMs", dispatched, len(sw.allEMs))
-}
-
-// inferSquad extracts the squad name from an agent ID.
-// e.g., "kernel-qa" -> "kernel", "cloud-sr" -> "cloud",
-// "ci-triage-agent-cloud" -> "cloud"
+// inferSquad extracts the repo name from an agent ID.
+// e.g., "kernel-qa" -> "kernel", "octi-sr" -> "octi".
+// The function name is retained for call-site compatibility; the term
+// "squad" is historical and now synonymous with "repo" after the
+// org collapse (see octi#271).
 func inferSquad(agentID string) string {
-	// Direct prefix match for standard naming
-	knownSquads := []string{
-		"kernel", "cloud", "shellforge", "octi-pulpo",
-		"studio", "office-sim", "marketing", "design", "site", "qa",
-	}
-	for _, squad := range knownSquads {
-		if strings.HasPrefix(agentID, squad+"-") {
-			return squad
+	// Direct prefix match against live repos.
+	for _, repo := range LiveRepos {
+		if strings.HasPrefix(agentID, repo+"-") {
+			return repo
 		}
 	}
 
-	// Check suffix for agents like "ci-triage-agent-cloud"
-	for _, squad := range knownSquads {
-		if strings.HasSuffix(agentID, "-"+squad) {
-			return squad
+	// Check suffix for agents like "ci-triage-agent-kernel".
+	for _, repo := range LiveRepos {
+		if strings.HasSuffix(agentID, "-"+repo) {
+			return repo
 		}
 	}
 
-	// Fallback: first segment
+	// Fallback: first segment.
 	parts := strings.SplitN(agentID, "-", 2)
 	return parts[0]
 }
