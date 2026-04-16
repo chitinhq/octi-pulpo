@@ -180,41 +180,17 @@ func DefaultRules() []EventRule {
 			Cooldown:  10 * time.Minute,
 		},
 
-		// Timer-based agents (replacing blind cron)
+		// Timer-based agents (replacing blind cron).
+		// Squad-era *-em timers (kernel/cloud/platform/analytics) were
+		// excised in octi#271 Phase 1 when the org collapsed to per-repo
+		// routing. Fossil regrowth is blocked by TestNoFossilTimersInRules
+		// in fossil_regression_test.go, keyed to LiveRepos.
 		{
 			EventType: EventTimer,
 			RepoMatch: "",
 			AgentName: "kernel-sr",
 			Priority:  2,
 			Cooldown:  3 * time.Hour,
-		},
-		{
-			EventType: EventTimer,
-			RepoMatch: "",
-			AgentName: "kernel-em",
-			Priority:  1,
-			Cooldown:  6 * time.Hour,
-		},
-		{
-			EventType: EventTimer,
-			RepoMatch: "",
-			AgentName: "cloud-em",
-			Priority:  1,
-			Cooldown:  6 * time.Hour,
-		},
-		{
-			EventType: EventTimer,
-			RepoMatch: "",
-			AgentName: "platform-em",
-			Priority:  1,
-			Cooldown:  6 * time.Hour,
-		},
-		{
-			EventType: EventTimer,
-			RepoMatch: "",
-			AgentName: "analytics-em",
-			Priority:  1,
-			Cooldown:  6 * time.Hour,
 		},
 
 		// Manual and Slack triggers (no cooldown -- explicit human action)

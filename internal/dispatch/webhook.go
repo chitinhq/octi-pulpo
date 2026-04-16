@@ -896,7 +896,7 @@ func (ws *WebhookServer) routeSlackAction(ctx context.Context, actionID, value, 
 			Source:  "slack",
 			Payload: map[string]string{"action": "switch_tier", "driver": value, "actor": actor},
 		}
-		_, err := ws.dispatcher.Dispatch(ctx, event, "octi-pulpo-sr", 1)
+		_, err := ws.dispatcher.Dispatch(ctx, event, "octi-sr", 1)
 		if err != nil {
 			return "", fmt.Errorf("dispatch switch-tier: %w", err)
 		}

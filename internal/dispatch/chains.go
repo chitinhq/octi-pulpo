@@ -26,35 +26,26 @@ type ChainConfig map[string]CompletionAction
 //	SR finishes coding -> QA reviews
 //	QA passes -> PR review
 //	PR review done -> merger
-//	Conductor/Director -> broadcast to EMs
+//
+// Squad-era fan-outs (jared-conductor, director, *-em) were excised in
+// octi#271 Phase 1 when the org collapsed to per-repo routing. Fossil
+// regrowth is prevented by TestNoFossilAgentsInChains in
+// fossil_regression_test.go, keyed to LiveRepos.
 func DefaultChains() ChainConfig {
 	return ChainConfig{
 		// SR finishes coding -> QA reviews, triage on failure
 		"kernel-sr":     {OnCommit: []string{"kernel-qa"}, OnFailure: []string{"triage-failing-ci-agent"}},
-		"cloud-sr":      {OnCommit: []string{"cloud-qa"}, OnFailure: []string{"ci-triage-agent-cloud"}},
 		"shellforge-sr": {OnCommit: []string{"shellforge-qa"}},
-		"octi-pulpo-sr": {OnCommit: []string{"octi-pulpo-qa"}},
-		"studio-sr":     {OnCommit: []string{"studio-qa"}},
-		"office-sim-sr": {OnCommit: []string{"office-sim-qa"}},
 
 		// QA passes -> PR review
-		"kernel-qa":    {OnSuccess: []string{"workspace-pr-review-agent"}},
-		"cloud-qa":     {OnSuccess: []string{"code-review-agent-cloud"}},
+		"kernel-qa":     {OnSuccess: []string{"workspace-pr-review-agent"}},
 		"shellforge-qa": {OnSuccess: []string{"shellforge-reviewer"}},
 
 		// PR review done -> merger
 		"workspace-pr-review-agent": {OnSuccess: []string{"pr-merger-agent"}},
-		"code-review-agent-cloud":   {OnSuccess: []string{"pr-merger-agent-cloud"}},
 
-		// EM reports -> director reads
-		"kernel-em": {OnSuccess: []string{"hq-em"}},
-		"cloud-em":  {OnSuccess: []string{"hq-em"}},
-
-		// Conductor finishes -> dispatch EMs
-		"jared-conductor": {OnSuccess: []string{"kernel-em", "cloud-em", "shellforge-em", "octi-pulpo-em", "studio-em"}},
-
-		// Director finishes -> broadcast to all EMs
-		"director": {OnSuccess: []string{"kernel-em", "cloud-em", "shellforge-em", "octi-pulpo-em", "studio-em", "marketing-em", "design-em", "site-em", "qa-em"}},
+		// Analytics PR review is still live; analytics webhooks may fire.
+		"analytics-pr-review-agent": {OnSuccess: []string{"pr-merger-agent"}},
 	}
 }
 

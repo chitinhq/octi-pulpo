@@ -1277,7 +1277,7 @@ func (b *Brain) leverageForP0(ctx context.Context) *LeverageAction {
 			if b.skipList != nil && b.skipList.IsSkipped(issueKey) {
 				continue
 			}
-			agent := b.srForSquad(item.Squad)
+			agent := b.srForRepo(item.Squad)
 			if agent == "" {
 				continue
 			}
@@ -1310,7 +1310,7 @@ func (b *Brain) leverageForIdleAgents(ctx context.Context) *LeverageAction {
 		if b.skipList != nil && b.skipList.IsSkipped(issueKey) {
 			continue
 		}
-		agent := b.srForSquad(item.Squad)
+		agent := b.srForRepo(item.Squad)
 		if agent == "" {
 			continue
 		}
@@ -1374,7 +1374,7 @@ func (b *Brain) leverageForNextSprint(ctx context.Context) *LeverageAction {
 		if b.skipList != nil && b.skipList.IsSkipped(issueKey) {
 			continue
 		}
-		agent := b.srForSquad(item.Squad)
+		agent := b.srForRepo(item.Squad)
 		if agent == "" {
 			continue
 		}
@@ -1485,8 +1485,12 @@ func (b *Brain) findIdleAgents(ctx context.Context) []string {
 		return nil
 	}
 
-	// Check known SR agents
-	srAgents := []string{"kernel-sr", "cloud-sr", "shellforge-sr", "octi-pulpo-sr", "studio-sr"}
+	// Check known SR agents (one per live repo — see LiveRepos in
+	// fossil_regression_test.go; post-octi#271 squad-collapse).
+	srAgents := []string{
+		"kernel-sr", "shellforge-sr", "clawta-sr", "sentinel-sr",
+		"llmint-sr", "octi-sr", "workspace-sr", "ganglia-sr",
+	}
 	var idle []string
 
 	for _, agent := range srAgents {
@@ -1540,21 +1544,22 @@ func (b *Brain) notifyAdapterResult(adapter, repo string, issueNum int, status, 
 	}
 }
 
-// srForSquad returns the SR agent name for a given squad.
-func (b *Brain) srForSquad(squad string) string {
+// srForRepo returns the SR agent name for a given repo. Returns "" for
+// unknown repos so callers can skip dispatch. The sprint-item field is
+// still named `Squad` (Phase 3 rename — see octi#271) but semantically
+// holds a repo name.
+func (b *Brain) srForRepo(repo string) string {
 	mapping := map[string]string{
 		"kernel":     "kernel-sr",
-		"cloud":      "cloud-sr",
 		"shellforge": "shellforge-sr",
-		"octi-pulpo": "octi-pulpo-sr",
-		"studio":     "studio-sr",
-		"analytics":  "analytics-sr",
 		"clawta":     "clawta-sr",
 		"sentinel":   "sentinel-sr",
 		"llmint":     "llmint-sr",
-		"ops":        "kernel-sr",
+		"octi":       "octi-sr",
+		"workspace":  "workspace-sr",
+		"ganglia":    "ganglia-sr",
 	}
-	return mapping[squad]
+	return mapping[repo]
 }
 
 // checkBackpressureRecovery looks for agents that were queued due to

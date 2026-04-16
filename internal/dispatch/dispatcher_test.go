@@ -773,10 +773,11 @@ func TestDispatchBudget_T1LocalEndToEnd(t *testing.T) {
 	d.SetAdapters(fake)
 
 	// Agent name deliberately has no code/review/implement keyword so
-	// taskMinTier() returns TierLocal. "kernel-em" matches the real
-	// production event rules (see events.go DefaultRules).
+	// taskMinTier() returns TierLocal. The squad-era "kernel-em" timer
+	// was excised in octi#271 Phase 1; use "kernel-sr" which is the
+	// surviving live timer agent (see events.go DefaultRules).
 	event := Event{Type: EventManual, Source: "test", Repo: "chitinhq/octi"}
-	result, err := d.DispatchBudget(ctx, event, "kernel-em", 2, "medium")
+	result, err := d.DispatchBudget(ctx, event, "kernel-sr", 2, "medium")
 	if err != nil {
 		t.Fatalf("dispatch error: %v", err)
 	}
