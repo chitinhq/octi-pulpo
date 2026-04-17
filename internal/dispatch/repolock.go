@@ -10,13 +10,19 @@ import (
 	"time"
 )
 
-// ErrWorktreeRace is returned by repoLock callers when `git worktree add`
-// fails after we held the sidecar flock — the signature of a stale
+// ErrWorktreeRace is the sentinel marker for a failed `git worktree add`
+// after we held the sidecar flock — the signature of a stale
 // `.git/config.lock` or an otherwise-contended repo.
 //
-// Adapters surface this via result.Status="failed" + result.Error prefixed
-// with "worktree race:" so Sentinel stops needing hourly log forensics to
-// spot the ganglia-sr silent-loss pattern.
+// Surface contract: adapters write result.Status="failed" and prefix
+// result.Error with "worktree race:" (via fmt.Sprintf on ErrWorktreeRace.Error()).
+// Downstream detectors (Sentinel telemetry) match on the STRING prefix —
+// not errors.Is — because the value lives in a plain string field, not
+// in an error return. If this ever needs to be machine-matchable via
+// errors.Is, the adapter surface must change first to thread an error
+// value alongside result.Error (see #TODO in adapters). Keeping it as a
+// prefix for now because it's the cheapest observable change that gets
+// Sentinel out of log-scrape forensics.
 var ErrWorktreeRace = errors.New("worktree race")
 
 // staleConfigLockTTL is how old `<repoPath>/.git/config.lock` must be
@@ -51,9 +57,18 @@ func repoLock(repoPath string) (release func(), err error) {
 		return nil, err
 	}
 
+	// Require an existing git repo at repoPath. `os.MkdirAll` on `.git`
+	// would happily create the directory inside an unrelated folder if
+	// repoPath is mis-resolved — mutating state we don't own and masking
+	// the real "not a git repo" error. Cheaper and safer: Stat the known
+	// file `.git/config`; real git repos always have it (both plain repos
+	// and worktrees), and it's present in all our adapter-managed checkouts.
 	gitDir := filepath.Join(cleanRepo, ".git")
-	if err := os.MkdirAll(gitDir, 0o755); err != nil {
-		return nil, fmt.Errorf("repoLock: ensure .git dir: %w", err)
+	if _, err := os.Stat(filepath.Join(gitDir, "config")); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("repoLock: %s is not a git repo (no .git/config)", cleanRepo)
+		}
+		return nil, fmt.Errorf("repoLock: stat .git/config: %w", err)
 	}
 
 	lockPath := filepath.Join(gitDir, "octi-worktree.lock")

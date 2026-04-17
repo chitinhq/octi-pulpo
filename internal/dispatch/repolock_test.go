@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -125,9 +126,13 @@ func TestRepoLockFiveGoroutinesWorktreeAdd(t *testing.T) {
 // time is roughly hold * 2 (no overlap); if it isn't, it's ~hold.
 func TestRepoLockSerializesSameRepo(t *testing.T) {
 	tmp := t.TempDir()
-	// Fake a .git dir so repoLock has somewhere to put its sidecar.
+	// Fake a .git dir + config file so repoLock's "is this a git repo" Stat
+	// check passes. The lock contents don't matter; only the presence does.
 	if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, ".git", "config"), []byte("[core]\n"), 0o644); err != nil {
+		t.Fatalf("seed .git/config: %v", err)
 	}
 
 	const hold = 50 * time.Millisecond
@@ -162,6 +167,10 @@ func TestRepoLockStaleConfigLockRemoved(t *testing.T) {
 	if err := os.MkdirAll(gitDir, 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
+	// Seed .git/config so repoLock's is-a-git-repo guard passes.
+	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]\n"), 0o644); err != nil {
+		t.Fatalf("seed .git/config: %v", err)
+	}
 	configLock := filepath.Join(gitDir, "config.lock")
 	if err := os.WriteFile(configLock, []byte("stale"), 0o644); err != nil {
 		t.Fatalf("seed stale config.lock: %v", err)
@@ -192,6 +201,10 @@ func TestRepoLockFreshConfigLockKept(t *testing.T) {
 	if err := os.MkdirAll(gitDir, 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
+	// Seed .git/config so repoLock's is-a-git-repo guard passes.
+	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]\n"), 0o644); err != nil {
+		t.Fatalf("seed .git/config: %v", err)
+	}
 	configLock := filepath.Join(gitDir, "config.lock")
 	if err := os.WriteFile(configLock, []byte("fresh"), 0o644); err != nil {
 		t.Fatalf("seed fresh config.lock: %v", err)
@@ -205,6 +218,25 @@ func TestRepoLockFreshConfigLockKept(t *testing.T) {
 
 	if _, err := os.Stat(configLock); err != nil {
 		t.Fatalf("fresh config.lock unexpectedly removed: %v", err)
+	}
+}
+
+// TestRepoLockRejectsNonGitRepo pins the safety guard from Copilot's PR #277
+// review: repoLock must NOT create `.git/` inside an unrelated directory when
+// repoPath is mis-resolved. Instead, it rejects with a clear
+// "not a git repo" error by Stat'ing `.git/config`.
+func TestRepoLockRejectsNonGitRepo(t *testing.T) {
+	tmp := t.TempDir() // empty dir, no .git/config
+	_, err := repoLock(tmp)
+	if err == nil {
+		t.Fatalf("expected error for non-git-repo path, got nil")
+	}
+	if !strings.Contains(err.Error(), "not a git repo") {
+		t.Fatalf("error message should identify the cause; got: %v", err)
+	}
+	// Confirm we did NOT create the .git dir as a side effect.
+	if _, statErr := os.Stat(filepath.Join(tmp, ".git")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf(".git dir should not be created on rejection; stat err=%v", statErr)
 	}
 }
 
