@@ -115,11 +115,23 @@ func (a *CopilotCLIAdapter) Dispatch(ctx context.Context, task *Task) (*AdapterR
 	worktreePath := filepath.Join(a.workspace, ".worktrees", branchName)
 
 	defaultBranch := detectDefaultBranch(repoPath)
+	// Serialize `git worktree add` per-repo so parallel dispatches don't
+	// race each other on .git/config.lock. Release *before* the long-running
+	// CLI run so throughput isn't tanked per-repo. See repolock.go.
+	releaseRepo, lockErr := repoLock(repoPath)
+	if lockErr != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("%s: acquire repo lock: %v", ErrWorktreeRace, lockErr)
+		return result, nil
+	}
 	wtCmd := exec.CommandContext(ctx, "git", "worktree", "add", worktreePath, "-b", branchName, "origin/"+defaultBranch)
 	wtCmd.Dir = repoPath
-	if wtOut, wtErr := wtCmd.CombinedOutput(); wtErr != nil {
+	wtOut, wtErr := wtCmd.CombinedOutput()
+	releaseRepo()
+	if wtErr != nil {
 		result.Status = "failed"
-		result.Error = fmt.Sprintf("worktree create failed: %s: %s", wtErr, string(wtOut))
+		result.Error = fmt.Sprintf("%s: git worktree add %s on origin/%s: %s: %s",
+			ErrWorktreeRace, worktreePath, defaultBranch, wtErr, string(wtOut))
 		return result, nil
 	}
 	defer cleanupWorktree(repoPath, worktreePath, branchName)
